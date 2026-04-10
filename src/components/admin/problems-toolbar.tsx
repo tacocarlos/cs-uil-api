@@ -1,0 +1,168 @@
+"use client";
+
+import { Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+
+const COMPETITION_LEVELS = [
+  "invA",
+  "invB",
+  "district",
+  "state",
+  "region",
+  "custom",
+] as const;
+
+const LEVEL_LABELS: Record<string, string> = {
+  invA: "Inv A",
+  invB: "Inv B",
+  district: "District",
+  state: "State",
+  region: "Region",
+  custom: "Custom",
+};
+
+export interface ProblemsToolbarProps {
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  levelFilter: string;
+  onLevelFilterChange: (value: string) => void;
+  statusFilter: string;
+  onStatusFilterChange: (value: string) => void;
+  yearFilter: string;
+  onYearFilterChange: (value: string) => void;
+  availableYears: number[];
+  totalCount: number;
+  filteredCount: number;
+  onReset: () => void;
+}
+
+export function ProblemsToolbar({
+  searchQuery,
+  onSearchChange,
+  levelFilter,
+  onLevelFilterChange,
+  statusFilter,
+  onStatusFilterChange,
+  yearFilter,
+  onYearFilterChange,
+  availableYears,
+  totalCount,
+  filteredCount,
+  onReset,
+}: ProblemsToolbarProps) {
+  const hasActiveFilters =
+    searchQuery !== "" ||
+    levelFilter !== "all" ||
+    statusFilter !== "all" ||
+    yearFilter !== "all";
+
+  const isFiltered = filteredCount !== totalCount;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Controls row */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Search input */}
+        <div className="relative min-w-48 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search problems…"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Level filter */}
+          <Select value={levelFilter} onValueChange={onLevelFilterChange}>
+            <SelectTrigger className="w-35">
+              <SelectValue placeholder="All Levels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Levels</SelectItem>
+              {COMPETITION_LEVELS.map((level) => (
+                <SelectItem key={level} value={level}>
+                  {LEVEL_LABELS[level] ?? level}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Status filter */}
+          <Select value={statusFilter} onValueChange={onStatusFilterChange}>
+            <SelectTrigger className="w-35">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Year filter */}
+          <Select value={yearFilter} onValueChange={onYearFilterChange}>
+            <SelectTrigger className="w-30">
+              <SelectValue placeholder="All Years" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Years</SelectItem>
+              {availableYears.map((year) => (
+                <SelectItem key={year} value={String(year)}>
+                  {year}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Reset button — only visible when a filter is active */}
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onReset}
+              className="gap-1.5 text-muted-foreground hover:text-foreground"
+              aria-label="Reset all filters"
+            >
+              <X className="size-4" />
+              Reset
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Result count */}
+      <p
+        className={cn(
+          "text-xs text-muted-foreground",
+          isFiltered && "font-medium text-foreground/70",
+        )}
+      >
+        {isFiltered ? (
+          <>
+            Showing{" "}
+            <span className="font-semibold text-foreground">
+              {filteredCount}
+            </span>{" "}
+            of{" "}
+            <span className="font-semibold text-foreground">{totalCount}</span>{" "}
+            {totalCount === 1 ? "problem" : "problems"}
+          </>
+        ) : (
+          <>{totalCount === 1 ? "1 problem" : `${totalCount} problems`}</>
+        )}
+      </p>
+    </div>
+  );
+}

@@ -1,3 +1,4 @@
+import { SiteNavbar } from "@/components/site/site-navbar";
 import { AccountView } from "@daveyplate/better-auth-ui";
 import { accountViewPaths } from "@daveyplate/better-auth-ui/server";
 
@@ -15,8 +16,11 @@ export default async function AccountPage({
   const { path } = await params;
 
   return (
-    <main className="container p-4 md:p-6">
-      <AccountView path={path} />
+    <main className="space-y-5">
+      <SiteNavbar />
+      <div className="w-3/4 block m-auto">
+        <AccountView path={path} />
+      </div>
     </main>
   );
 }

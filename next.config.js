@@ -5,6 +5,12 @@
 import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
-const config = {};
+const config = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "256mb",
+    },
+  },
+};
 
 export default config;

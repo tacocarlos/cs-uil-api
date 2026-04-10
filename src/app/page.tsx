@@ -1,69 +1,126 @@
-'use client';
+import { BookOpen, Moon, Trophy, CalendarDays } from "lucide-react";
 
-import Link from "next/link";
+import { getEnabledProblems } from "@/server/actions/problems";
+import { SiteNavbar } from "@/components/site/site-navbar";
+import { PublicTable } from "@/components/problems/public-table";
+import { Separator } from "@/components/ui/separator";
 
-import { useRouter } from "next/navigation";
-import { authClient } from "@auth/client";
+export default async function Home() {
+  const problems = await getEnabledProblems();
 
-export default function Home() {
-  const { data: session } = authClient.useSession();
-  const router = useRouter();
+  // Compute lightweight stats directly from the fetched rows — no extra query.
+  const uniqueYears = new Set(
+    problems
+      .map((p) => p.competitionYear)
+      .filter((y): y is number => y !== null),
+  ).size;
+
+  const uniqueLevels = new Set(
+    problems
+      .map((p) => p.competitionLevel)
+      .filter((l): l is NonNullable<typeof l> => l !== null),
+  ).size;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
-      <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
-        <h1 className="font-extrabold text-5xl tracking-tight sm:text-[5rem]">
-          Create <span className="text-[hsl(280,100%,70%)]">T3</span> App
-        </h1>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-8">
-          <Link
-            className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-            href="https://create.t3.gg/en/usage/first-steps"
-            target="_blank"
-          >
-            <h3 className="font-bold text-2xl">First Steps →</h3>
-            <div className="text-lg">
-              Just the basics - Everything you need to know to set up your
-              database and authentication.
-            </div>
-          </Link>
-          <Link
-            className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-            href="https://create.t3.gg/en/introduction"
-            target="_blank"
-          >
-            <h3 className="font-bold text-2xl">Documentation →</h3>
-            <div className="text-lg">
-              Learn more about Create T3 App, the libraries it uses, and how to
-              deploy it.
-            </div>
-          </Link>
-        </div>
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex flex-col items-center justify-center gap-4">
-            <p className="text-center text-2xl text-white">
-              {session && <span>Logged in as {session.user?.email}</span>}
-            </p>
-            {!session ? (
-              <button
-                className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
-                type="button"
-                onClick={() => { router.push("/auth/sign-in") }}
-              >
-                Sign in
-              </button>
-            ) : (
-              <button
-                className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
-                type="button"
-                onClick={() => { authClient.signOut(); router.refresh(); }}
-              >
-                Sign out
-              </button>
-            )}
+    <div className="flex min-h-screen flex-col">
+      {/* ── Sticky top nav ─────────────────────────────────────────────── */}
+      <SiteNavbar />
+
+      {/* ── Hero ───────────────────────────────────────────────────────── */}
+      <section className="relative border-b border-border/60 bg-linear-to-b from-primary/5 via-primary/2 to-background">
+        {/* Subtle grid background */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 [background-image:linear-gradient(to_right,theme(colors.border/40%)_1px,transparent_1px),linear-gradient(to_bottom,theme(colors.border/40%)_1px,transparent_1px)] [background-size:48px_48px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,black_40%,transparent_100%)]"
+        />
+
+        <div className="relative mx-auto max-w-7xl px-4 py-20 text-center sm:px-6 sm:py-28">
+          {/* Pill tag */}
+          <div className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1 text-xs font-medium text-primary">
+            <BookOpen className="size-3" />
+            Texas UIL Computer Science
           </div>
+
+          {/* Headline */}
+          <h1 className="font-heading mb-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+            Practice Problems
+          </h1>
+
+          {/* Subtitle */}
+          <p className="mx-auto mb-10 max-w-2xl text-base text-muted-foreground sm:text-lg">
+            Browse CS UIL Problems
+          </p>
+
+          {/* Stats strip */}
+          {/*<div className="inline-flex items-center gap-8 rounded-2xl border border-border/70 bg-card px-8 py-4 shadow-sm sm:gap-12">
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="mb-1 flex size-7 items-center justify-center rounded-lg bg-primary/10">
+                <BookOpen className="size-3.5 text-primary" />
+              </div>
+              <span className="font-heading text-2xl font-bold tabular-nums">
+                {problems.length}
+              </span>
+              <span className="text-xs text-muted-foreground">Problems</span>
+            </div>
+
+            <Separator orientation="vertical" className="h-14" />
+
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="mb-1 flex size-7 items-center justify-center rounded-lg bg-primary/10">
+                <CalendarDays className="size-3.5 text-primary" />
+              </div>
+              <span className="font-heading text-2xl font-bold tabular-nums">
+                {uniqueYears}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {uniqueYears === 1 ? "Year" : "Years"}
+              </span>
+            </div>
+
+            <Separator orientation="vertical" className="h-14" />
+
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="mb-1 flex size-7 items-center justify-center rounded-lg bg-primary/10">
+                <Trophy className="size-3.5 text-primary" />
+              </div>
+              <span className="font-heading text-2xl font-bold tabular-nums">
+                {uniqueLevels}
+              </span>
+              <span className="text-xs text-muted-foreground">Levels</span>
+            </div>
+          </div>*/}
         </div>
-      </div>
-    </main>
+      </section>
+
+      {/* ── Problems table ─────────────────────────────────────────────── */}
+      <section id="problems" className="flex-1 bg-muted/20">
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+          <PublicTable problems={problems} />
+        </div>
+      </section>
+
+      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      <footer className="border-t border-border/60 bg-background">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 py-6 sm:flex-row sm:px-6">
+          {/* Brand */}
+          <div className="flex items-center gap-2">
+            <div className="flex size-6 items-center justify-center rounded-md bg-primary">
+              <Moon className="size-3.5 text-primary-foreground" />
+            </div>
+            <span className="font-heading text-sm font-semibold">Lunar CS</span>
+          </div>
+
+          {/* Tagline */}
+          <p className="text-center text-xs text-muted-foreground sm:text-left">
+            UIL Computer Science Programming Problem Viewer
+          </p>
+
+          {/* Copyright */}
+          <p className="text-xs text-muted-foreground">
+            © {new Date().getFullYear()} Lunar CS
+          </p>
+        </div>
+      </footer>
+    </div>
   );
 }

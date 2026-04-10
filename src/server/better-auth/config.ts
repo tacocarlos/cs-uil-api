@@ -7,6 +7,16 @@ import { deviceAuthorization, lastLoginMethod } from "better-auth/plugins";
 import * as authSchema from "@db/schemas/auth-schema";
 
 export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      role: {
+        type: ["user", "admin"],
+        required: true,
+        defaultValue: "user",
+        input: false,
+      },
+    },
+  },
   database: drizzleAdapter(db, {
     provider: "sqlite", // or "pg" or "mysql"
     schema: authSchema,
@@ -24,3 +34,4 @@ export const auth = betterAuth({
 });
 
 export type Session = typeof auth.$Infer.Session;
+export type User = typeof auth.$Infer.Session.user;

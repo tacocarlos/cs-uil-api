@@ -9,21 +9,22 @@
     "moduleDetection": "force",
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-
     /* Strictness */
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "checkJs": true,
-
     /* Bundled projects */
     "lib": ["dom", "dom.iterable", "ES2022"],
     "noEmit": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "preserve",
-    "plugins": [{ "name": "next" }],
+    "plugins": [
+      {
+        "name": "next",
+      },
+    ],
     "incremental": true,
-
     /* Path Aliases */
     "baseUrl": ".",
     "paths": {
@@ -31,6 +32,8 @@
       "@auth/*": ["./src/server/better-auth/*"],
       "@providers/*": ["./src/app/providers/*"],
       "@db/*": ["./src/server/db/*"],
+      "@/lib/utils": ["./src/lib/utils"],
+      "@ui/*": ["./src/components/ui/*"],
     },
   },
   "include": [

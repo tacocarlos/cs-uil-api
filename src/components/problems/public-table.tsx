@@ -35,7 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 // Constants
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+const PAGE_SIZE_OPTIONS = [12, 24, 36, 48, 100] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,7 +75,7 @@ export function PublicTable({ problems }: PublicTableProps) {
     totalCount,
     filteredCount,
     totalPages,
-  } = useProblemsTable(problems);
+  } = useProblemsTable(problems, { defaultPageSize: PAGE_SIZE_OPTIONS[0] });
 
   const router = useRouter();
 

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
@@ -23,7 +23,8 @@ export async function getProblems() {
       competitionYear: competition.year,
     })
     .from(problem)
-    .innerJoin(competition, eq(problem.competition, competition.id));
+    .innerJoin(competition, eq(problem.competition, competition.id))
+    .orderBy(desc(competition.year), asc(problem.number));
 }
 
 /**
@@ -92,7 +93,8 @@ export async function getEnabledProblems() {
     })
     .from(problem)
     .innerJoin(competition, eq(problem.competition, competition.id))
-    .where(and(eq(problem.enabled, true), eq(competition.enabled, true)));
+    .where(and(eq(problem.enabled, true), eq(competition.enabled, true)))
+    .orderBy(desc(competition.year), asc(problem.number));
 }
 
 /**
@@ -168,6 +170,24 @@ export async function updateProblem(
         enabled: data.enabled,
       })
       .where(eq(problem.id, id));
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Deletes a problem row by ID.
+ * Returns `{ success: true }` on success or `{ success: false, error }` on failure.
+ */
+export async function deleteProblem(
+  id: number,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await db.delete(problem).where(eq(problem.id, id));
     return { success: true };
   } catch (e) {
     return {

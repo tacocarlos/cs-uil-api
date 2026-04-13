@@ -4,6 +4,7 @@ import { asc, count, eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
+import { cache } from "react";
 
 /**
  * Fetches every competition row, returning all columns.
@@ -35,7 +36,7 @@ export async function getCompetitionById(id: number) {
  * Fetches a competition by ID together with all of its associated problems,
  * ordered by problem number ascending.
  */
-export async function getCompetitionWithProblems(id: number) {
+export const getCompetitionWithProblems = cache(async (id: number) => {
   const [comp, problems] = await Promise.all([
     getCompetitionById(id),
     db
@@ -45,7 +46,7 @@ export async function getCompetitionWithProblems(id: number) {
       .orderBy(asc(problem.number)),
   ]);
   return { competition: comp, problems };
-}
+});
 
 /** Shape returned by {@link getCompetitionWithProblems}. */
 export type CompetitionWithProblems = Awaited<

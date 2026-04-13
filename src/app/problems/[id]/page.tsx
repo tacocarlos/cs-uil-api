@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import { eq, asc } from "drizzle-orm";
+import { ArrowLeft, ChevronRight, Trophy } from "lucide-react";
+import { and, asc, eq, gt } from "drizzle-orm";
 
 import { getProblemById } from "@/server/actions/problems";
 import { db } from "@/server/db";
@@ -11,12 +11,10 @@ import { MarkdownPreview } from "@/components/admin/competition/markdown-preview
 import { CompetitionLevelBadge } from "@/components/problems/competition-level-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LEVEL_LABELS } from "@/components/admin/competition/types";
+/** UIL competitions have exactly 12 problems. "Custom" has no enforced cap. */
+const MAX_STANDARD_PROBLEMS = 12;
 
 export default async function ProblemPage({
   params,
@@ -36,30 +34,39 @@ export default async function ProblemPage({
     notFound();
   }
 
-  // Fetch sibling problems ordered by number for prev/next navigation.
-  const siblings = await db
+  // Fetch the next enabled problem in the same competition (number strictly
+  // greater than the current one, ascending — so limit 1 gives the immediate next).
+  const nextSiblings = await db
     .select({
       id: problemTable.id,
       number: problemTable.number,
       name: problemTable.name,
     })
     .from(problemTable)
-    .where(eq(problemTable.competition, problem.competitionId))
-    .orderBy(asc(problemTable.number));
+    .where(
+      and(
+        eq(problemTable.competition, problem.competitionId),
+        eq(problemTable.enabled, true),
+        gt(problemTable.number, problem.number),
+      ),
+    )
+    .orderBy(asc(problemTable.number))
+    .limit(1);
 
-  const currentIdx = siblings.findIndex((s) => s.id === problem.id);
-  const prevProblem = currentIdx > 0 ? siblings[currentIdx - 1] : undefined;
-  const nextProblem =
-    currentIdx !== -1 && currentIdx < siblings.length - 1
-      ? siblings[currentIdx + 1]
-      : undefined;
+  const nextProblem = nextSiblings[0];
+
+  // For standard competition levels the set ends at problem 12.
+  // "Custom" competitions have no defined upper bound.
+  const isCustomLevel = problem.competitionLevel === "custom";
+  const isLastProblem =
+    !isCustomLevel && problem.number >= MAX_STANDARD_PROBLEMS;
+  const showNext = nextProblem !== undefined && !isLastProblem;
 
   return (
     <div className="flex min-h-screen flex-col">
       <SiteNavbar />
       <main className="flex-1">
         <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-
           {/* Back link */}
           <Link
             href="/#problems"
@@ -118,28 +125,28 @@ export default async function ProblemPage({
             </Card>
           )}
 
-          {/* Prev / Next navigation */}
+          {/* Navigation — competition link (always) + next problem (conditional) */}
           <div className="flex items-center justify-between">
-            {prevProblem ? (
+            {/* Left: back to the competition page */}
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/competitions/${problem.competitionId}`}>
+                <Trophy className="size-3.5" />
+                View Other {problem.competitionYear}{" "}
+                {LEVEL_LABELS[problem.competitionLevel ?? "custom"]} Problems
+              </Link>
+            </Button>
+
+            {/* Right: next problem — hidden once the final problem is reached */}
+            {showNext ? (
               <Button variant="outline" size="sm" asChild>
-                <Link href={`/problems/${prevProblem.id}`}>
-                  <ChevronLeft /> Problem {prevProblem.number}
-                </Link>
-              </Button>
-            ) : (
-              <span />
-            )}
-            {nextProblem ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/problems/${nextProblem.id}`}>
-                  Problem {nextProblem.number} <ChevronRight />
+                <Link href={`/problems/${nextProblem!.id}`}>
+                  Problem {nextProblem!.number} <ChevronRight />
                 </Link>
               </Button>
             ) : (
               <span />
             )}
           </div>
-
         </div>
       </main>
     </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "@/components/site/theme-toggle";
 import { Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getUser, getUserRole } from "@/server/better-auth/server";
@@ -40,11 +41,18 @@ export async function SiteNavbar() {
             >
               About
             </Link>
+            <Link
+              href="/docs"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Docs
+            </Link>
           </nav>
         </div>
 
         {/* Right side: auth buttons */}
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           <ShowIfAdmin user={user}>
             <Link href="/admin/">
               <Button variant="outline" size="sm">

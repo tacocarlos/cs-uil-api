@@ -36,7 +36,6 @@ export default async function CompetitionPage({
       <SiteNavbar />
       <main className="flex-1">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-
           {/* Back */}
           <Link
             href="/#problems"
@@ -58,21 +57,35 @@ export default async function CompetitionPage({
               </div>
               <h1 className="font-heading text-3xl font-bold tracking-tight">
                 {competition.year}{" "}
-                {LEVEL_LABELS[competition.level ?? "custom"] ?? competition.level}
+                {LEVEL_LABELS[competition.level ?? "custom"] ??
+                  competition.level}
               </h1>
             </div>
+            <span className="space-x-5">
+              {competition.data_zip_url && (
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href={competition.data_zip_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <FileText className="size-3.5" /> Download Data Zip
+                  </a>
+                </Button>
+              )}
 
-            {competition.student_packet_url && (
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={competition.student_packet_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <FileText className="size-3.5" /> Student Packet
-                </a>
-              </Button>
-            )}
+              {competition.student_packet_url && (
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href={competition.student_packet_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <FileText className="size-3.5" /> Open Student Packet
+                  </a>
+                </Button>
+              )}
+            </span>
           </div>
 
           {/* Problems list */}
@@ -99,7 +112,6 @@ export default async function CompetitionPage({
               ))}
             </div>
           )}
-
         </div>
       </main>
     </div>

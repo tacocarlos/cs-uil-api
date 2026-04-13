@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
   ArrowDown,
@@ -289,6 +290,8 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
   // ── Shared sort header props ───────────────────────────────────────────
   const sortProps = { sortColumn, sortDirection, onSort: handleSort };
 
+  const router = useRouter();
+
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <Card>
@@ -388,7 +391,13 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
                 </TableRow>
               ) : (
                 paginatedRows.map((problem) => (
-                  <TableRow key={problem.id}>
+                  <TableRow
+                    key={problem.id}
+                    className="cursor-pointer"
+                    onClick={() =>
+                      router.push(`/admin/problems/edit/${problem.id}`)
+                    }
+                  >
                     {/* # */}
                     <TableCell className="text-right font-mono text-sm tabular-nums text-muted-foreground">
                       {problem.number}
@@ -433,7 +442,7 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
                     </TableCell>
 
                     {/* Actions */}
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <ProblemRowActions problem={problem} />
                     </TableCell>
                   </TableRow>

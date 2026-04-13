@@ -8,6 +8,7 @@ import {
   Settings,
   Shield,
   Trophy,
+  Undo2,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -74,6 +75,16 @@ const navGroups: NavGroup[] = [
       },
     ],
   },
+  {
+    label: "Public",
+    items: [
+      {
+        label: "Return To Home Page",
+        href: "/",
+        icon: Undo2,
+      },
+    ],
+  },
 ];
 
 function useIsActive(href: string, exact = false): boolean {
@@ -94,10 +105,7 @@ function NavItem({ item }: { item: NavItem }) {
         asChild
         isActive={isActive}
         tooltip={item.label}
-        className={cn(
-          "transition-colors",
-          isActive && "font-medium"
-        )}
+        className={cn("transition-colors", isActive && "font-medium")}
       >
         <Link href={item.href}>
           <Icon className="size-4 shrink-0" />

@@ -3,6 +3,8 @@
 import Markdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { cn } from "@/lib/utils";
 
 const components: Components = {
@@ -69,7 +71,7 @@ const components: Components = {
     <img src={src} alt={alt ?? ""} className="my-3 max-w-full rounded-lg" />
   ),
   pre: ({ children }) => (
-    <pre className="mb-3 overflow-x-auto rounded-xl bg-muted/60 p-3 text-sm">
+    <pre className="mb-3 overflow-x-auto rounded-xl bg-muted/60 p-4 font-mono text-xs leading-relaxed [&_code]:bg-transparent [&_code]:p-0 [&_code]:rounded-none">
       {children}
     </pre>
   ),
@@ -96,7 +98,12 @@ export function MarkdownPreview({
 }) {
   return (
     <div className={cn("text-foreground", className)}>
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      {/*<Markdown remarkPlugins={[remarkGfm]} components={components}>*/}
+      <Markdown
+        components={components}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+      >
         {content}
       </Markdown>
     </div>

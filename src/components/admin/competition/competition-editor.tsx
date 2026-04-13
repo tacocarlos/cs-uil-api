@@ -15,7 +15,11 @@ import {
   Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { saveCompetition } from "@/server/actions/save";
+import {
+  createCompetition,
+  saveProblem,
+  type ProblemToSave,
+} from "@/server/actions/save";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,6 +102,7 @@ export function CompetitionEditor({
 
   const router = useRouter();
   const [isSaving, startSaving] = useTransition();
+  const [saveProgress, setSaveProgress] = useState<string | null>(null);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -116,13 +121,46 @@ export function CompetitionEditor({
 
   function handleSave(): void {
     startSaving(async () => {
-      const result = await saveCompetition(form, problems);
-      if (result.success) {
-        toast.success("Competition saved successfully.");
-        router.push("/admin/problems");
-      } else {
-        toast.error(result.error);
+      // ── Phase 1: create the competition row (tiny payload) ──────────────
+      setSaveProgress("Creating competition…");
+      const compResult = await createCompetition(form);
+      if (!compResult.success) {
+        toast.error(compResult.error);
+        setSaveProgress(null);
+        return;
       }
+
+      // ── Phase 2: save each problem individually (one request per problem)
+      // This avoids hitting Vercel's 4.5 MB server-action payload limit that
+      // would trigger if all problems were sent in a single request body.
+      const { competitionId } = compResult;
+      for (let i = 0; i < problems.length; i++) {
+        const p = problems[i]!;
+        setSaveProgress(`Saving problem ${i + 1} of ${problems.length}…`);
+
+        const problemData: ProblemToSave = {
+          name: p.name,
+          number: p.number,
+          markdown: p.markdown,
+          pdfUrl: p.pdfUrl,
+          studentData: p.studentData,
+          studentOutput: p.studentOutput,
+          testData: p.testData,
+          testOutput: p.testOutput,
+          solution: p.solution,
+        };
+
+        const probResult = await saveProblem(competitionId, problemData);
+        if (!probResult.success) {
+          toast.error(`Problem ${p.number}: ${probResult.error}`);
+          setSaveProgress(null);
+          return;
+        }
+      }
+
+      setSaveProgress(null);
+      toast.success("Competition saved successfully.");
+      router.push("/admin/problems");
     });
   }
 
@@ -211,7 +249,7 @@ export function CompetitionEditor({
                 {isSaving ? (
                   <>
                     <Loader2 className="animate-spin" />
-                    Saving…
+                    {saveProgress ?? "Saving…"}
                   </>
                 ) : (
                   <>

@@ -40,7 +40,12 @@ export const getCompetitionWithProblems = cache(async (id: number) => {
   const [comp, problems] = await Promise.all([
     getCompetitionById(id),
     db
-      .select()
+      .select({
+        id: problem.id,
+        name: problem.name,
+        number: problem.number,
+        enabled: problem.enabled,
+      })
       .from(problem)
       .where(eq(problem.competition, id))
       .orderBy(asc(problem.number)),

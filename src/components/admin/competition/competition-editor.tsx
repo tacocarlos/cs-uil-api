@@ -142,7 +142,6 @@ export function CompetitionEditor({
           name: p.name,
           number: p.number,
           markdown: p.markdown,
-          pdfUrl: p.pdfUrl,
           studentData: p.studentData,
           studentOutput: p.studentOutput,
           testData: p.testData,

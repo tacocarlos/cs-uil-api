@@ -4,6 +4,8 @@ import { and, asc, count, desc, eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
+import { fetchTextContent } from "@/lib/fetch-text";
+import { uploadTextFile } from "@/lib/upload-text";
 
 /**
  * Fetches all problems joined with their parent competition, returning a
@@ -107,12 +109,11 @@ export async function getProblemById(id: number) {
       id: problem.id,
       name: problem.name,
       number: problem.number,
-      markdown: problem.markdown,
-      pdfUrl: problem.pdf_url,
-      studentData: problem.student_data,
-      studentOutput: problem.student_output,
-      testData: problem.test_data,
-      testOutput: problem.test_output,
+      problemTextUrl: problem.problem_text_url,
+      studentDataUrl: problem.student_data_url,
+      studentOutputUrl: problem.student_output_url,
+      testDataUrl: problem.test_data_url,
+      testOutputUrl: problem.test_output_url,
       solution: problem.solution,
       enabled: problem.enabled,
       createdAt: problem.createdAt,
@@ -126,7 +127,20 @@ export async function getProblemById(id: number) {
     .innerJoin(competition, eq(problem.competition, competition.id))
     .where(eq(problem.id, id))
     .limit(1);
-  return rows[0] ?? null;
+
+  const row = rows[0];
+  if (!row) return null;
+
+  const [markdown, studentData, studentOutput, testData, testOutput] =
+    await Promise.all([
+      fetchTextContent(row.problemTextUrl),
+      fetchTextContent(row.studentDataUrl),
+      fetchTextContent(row.studentOutputUrl),
+      fetchTextContent(row.testDataUrl),
+      fetchTextContent(row.testOutputUrl),
+    ]);
+
+  return { ...row, markdown, studentData, studentOutput, testData, testOutput };
 }
 
 /** Full detail shape returned by {@link getProblemById}. */
@@ -156,16 +170,32 @@ export async function updateProblem(
   data: UpdateProblemData,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
+    // Upload each field as a separate text file. uploadTextFile returns null
+    // for empty content, which the DB stores as null (column is nullable).
+    const [
+      problemTextUrl,
+      studentDataUrl,
+      studentOutputUrl,
+      testDataUrl,
+      testOutputUrl,
+    ] = await Promise.all([
+      uploadTextFile(data.markdown, `problem-${id}-markdown.md`),
+      uploadTextFile(data.studentData, `problem-${id}-student-data.txt`),
+      uploadTextFile(data.studentOutput, `problem-${id}-student-output.txt`),
+      uploadTextFile(data.testData, `problem-${id}-test-data.txt`),
+      uploadTextFile(data.testOutput, `problem-${id}-test-output.txt`),
+    ]);
+
     await db
       .update(problem)
       .set({
         name: data.name.slice(0, 128),
         number: data.number,
-        markdown: data.markdown,
-        student_data: data.studentData,
-        student_output: data.studentOutput,
-        test_data: data.testData,
-        test_output: data.testOutput,
+        problem_text_url: problemTextUrl,
+        student_data_url: studentDataUrl,
+        student_output_url: studentOutputUrl,
+        test_data_url: testDataUrl,
+        test_output_url: testOutputUrl,
         solution: data.solution,
         enabled: data.enabled,
       })

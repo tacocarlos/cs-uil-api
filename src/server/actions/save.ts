@@ -9,6 +9,7 @@ import {
   type CompetitionFormState,
   COMPETITION_LEVELS,
 } from "@/components/admin/competition/types";
+import { uploadTextFile } from "@/lib/upload-text";
 
 // ---------------------------------------------------------------------------
 // Shared result types
@@ -96,7 +97,7 @@ export interface ProblemToSave {
   name: string;
   number: number;
   markdown: string;
-  pdfUrl: string;
+  // pdfUrl removed — pdf_url column was dropped from the schema
   studentData: string;
   studentOutput: string;
   testData: string;
@@ -121,16 +122,45 @@ export async function saveProblem(
   problem: ProblemToSave,
 ): Promise<SaveProblemResult> {
   try {
+    // Upload each text field to UploadThing. Returns null for empty fields.
+    const [
+      problemTextUrl,
+      studentDataUrl,
+      studentOutputUrl,
+      testDataUrl,
+      testOutputUrl,
+    ] = await Promise.all([
+      uploadTextFile(
+        problem.markdown,
+        `comp-${competitionId}-p${problem.number}-markdown.md`,
+      ),
+      uploadTextFile(
+        problem.studentData,
+        `comp-${competitionId}-p${problem.number}-student-data.txt`,
+      ),
+      uploadTextFile(
+        problem.studentOutput,
+        `comp-${competitionId}-p${problem.number}-student-output.txt`,
+      ),
+      uploadTextFile(
+        problem.testData,
+        `comp-${competitionId}-p${problem.number}-test-data.txt`,
+      ),
+      uploadTextFile(
+        problem.testOutput,
+        `comp-${competitionId}-p${problem.number}-test-output.txt`,
+      ),
+    ]);
+
     await db.insert(problemTable).values({
       competition: competitionId,
       name: problem.name.slice(0, 128),
       number: problem.number,
-      markdown: problem.markdown,
-      pdf_url: problem.pdfUrl,
-      student_data: problem.studentData,
-      student_output: problem.studentOutput,
-      test_data: problem.testData,
-      test_output: problem.testOutput,
+      problem_text_url: problemTextUrl,
+      student_data_url: studentDataUrl,
+      student_output_url: studentOutputUrl,
+      test_data_url: testDataUrl,
+      test_output_url: testOutputUrl,
       solution: problem.solution,
       enabled: false,
     });

@@ -124,7 +124,6 @@ export async function runExtractionPipeline(
       testOutput: rawProblem.testOutput,
       solution: rawProblem.solution,
       markdown,
-      pdfUrl: params.pdfUrl,
       imageUrls: imagePlaceholderMap,
     });
 
@@ -148,7 +147,6 @@ export async function runExtractionPipeline(
         testOutput: "",
         solution: "",
         markdown: pdfProblem.markdown,
-        pdfUrl: params.pdfUrl,
         imageUrls: {},
       });
     }

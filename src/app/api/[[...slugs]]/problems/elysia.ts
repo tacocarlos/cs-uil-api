@@ -47,7 +47,7 @@ export const ProblemAPI = new Elysia()
           "Returns minimal data for all problems, or up to a limit if specified",
         description:
           "Returns the id, competition id, name, and problem number for all problems. If a limit or offset are provided, then they are used.",
-        tags: ["problem"],
+        tags: ["problem "],
       },
     },
   )

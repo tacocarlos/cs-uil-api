@@ -52,8 +52,6 @@ export interface ExtractedProblem {
    * uploaded UploadThing URLs (or left as-is if no matching image was found).
    */
   markdown: string;
-  /** The full student packet PDF URL (used as the pdf_url for each problem) */
-  pdfUrl: string;
   /** Map of FIGURE_N placeholder → uploaded UploadThing URL */
   imageUrls: Record<string, string>;
 }

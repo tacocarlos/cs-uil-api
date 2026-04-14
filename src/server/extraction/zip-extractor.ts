@@ -54,7 +54,11 @@ function readText(entry: AdmZip.IZipEntry): string {
  *   "LinkedList"  → "linkedlist"
  */
 export function normalizeName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return name
+    .normalize("NFD") // decompose accented chars: "ç" → "c" + combining cedilla
+    .replace(/\p{M}/gu, "") // strip all Unicode combining marks (accents, diacritics)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ""); // strip remaining non-alphanumeric characters
 }
 
 // ---------------------------------------------------------------------------

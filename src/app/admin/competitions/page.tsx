@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { Trophy, Pencil, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";

@@ -11,6 +11,7 @@ import {
   ListChecks,
   Loader2,
   Pencil,
+  Plus,
   Save,
   Settings2,
 } from "lucide-react";
@@ -36,6 +37,9 @@ import { CompetitionDetailsForm } from "./competition-details-form";
 import { ProblemEditorSheet } from "./problem-editor-sheet";
 import { ProblemsReviewList } from "./problems-review-list";
 import type { CompetitionFormState, EditableProblem } from "./types";
+import type { ExtractedProblem } from "@/server/extraction/types";
+
+import { uploadFiles } from "@/app/api/uploadthing/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,7 +98,7 @@ export function CompetitionEditor({
   });
 
   const [problems, setProblems] = useState<EditableProblem[]>(
-    initialData.problems.map((p) => ({ ...p, isDirty: false })),
+    initialData.problems.map((p) => ({ ...p, isDirty: false, enabled: false })),
   );
 
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -131,8 +135,28 @@ export function CompetitionEditor({
       }
 
       // ── Phase 2: save each problem individually (one request per problem)
-      // This avoids hitting Vercel's 4.5 MB server-action payload limit that
-      // would trigger if all problems were sent in a single request body.
+      // MUST upload things from the client side, since the alternative is not using Vercel and I don't want to mess with that rn
+      const uploadText = async (
+        pname: string,
+        content: string,
+        ext: "dat" | "out" | "md",
+        type: "student" | "test" | "problem-text",
+      ) => {
+        const file = new File(
+          [content],
+          `${pname}-${parseInt(form.year) ?? new Date().getUTCFullYear()}-${type}.${ext}`,
+          {
+            type: ext === "md" ? "text/markdown" : "text/plain",
+          },
+        );
+
+        const result = await uploadFiles("textUploader", {
+          files: [file],
+        });
+
+        return result[0]?.ufsUrl ?? null;
+      };
+
       const { competitionId } = compResult;
       for (let i = 0; i < problems.length; i++) {
         const p = problems[i]!;
@@ -141,12 +165,28 @@ export function CompetitionEditor({
         const problemData: ProblemToSave = {
           name: p.name,
           number: p.number,
-          markdown: p.markdown,
-          studentData: p.studentData,
-          studentOutput: p.studentOutput,
-          testData: p.testData,
-          testOutput: p.testOutput,
           solution: p.solution,
+          enabled: p.enabled,
+          problem_text_url: await uploadText(
+            p.name,
+            p.markdown,
+            "md",
+            "problem-text",
+          ),
+          student_data_url: await uploadText(
+            p.name,
+            p.studentData,
+            "dat",
+            "student",
+          ),
+          student_output_url: await uploadText(
+            p.name,
+            p.studentOutput,
+            "out",
+            "student",
+          ),
+          test_data_url: await uploadText(p.name, p.testData, "dat", "test"),
+          test_output_url: await uploadText(p.name, p.markdown, "out", "test"),
         };
 
         const probResult = await saveProblem(competitionId, problemData);
@@ -161,6 +201,44 @@ export function CompetitionEditor({
       toast.success("Competition saved successfully.");
       router.push("/admin/problems");
     });
+  }
+
+  function handleToggleAll(enabled: boolean): void {
+    setProblems((prev) => prev.map((p) => ({ ...p, enabled })));
+  }
+
+  function handleRemoveProblem(index: number): void {
+    setProblems((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        // Re-number sequentially so there are no gaps
+        .map((p, i) => ({ ...p, number: i + 1 })),
+    );
+  }
+
+  function handleAddProblem(): void {
+    const nextNumber =
+      problems.length > 0 ? Math.max(...problems.map((p) => p.number)) + 1 : 1;
+
+    const blank: EditableProblem = {
+      number: nextNumber,
+      name: "",
+      markdown: "",
+      studentData: "",
+      studentOutput: "",
+      testData: "",
+      testOutput: "",
+      solution: "",
+      imageUrls: {},
+      isDirty: true,
+      enabled: false,
+    };
+
+    // problems.length is the 0-based index of the item that will be added
+    const newIndex = problems.length;
+    setProblems((prev) => [...prev, blank]);
+    setEditingIndex(newIndex);
+    setSheetOpen(true);
   }
 
   function handleNavigate(direction: "prev" | "next"): void {
@@ -298,8 +376,19 @@ export function CompetitionEditor({
                 <ProblemsReviewList
                   problems={problems}
                   onEdit={handleEditProblem}
+                  onRemove={handleRemoveProblem}
+                  onToggleAll={handleToggleAll}
                 />
               )}
+              {/* Add Problem button */}
+              <button
+                type="button"
+                onClick={handleAddProblem}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/60 py-4 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+              >
+                <Plus className="size-4" />
+                Add Problem
+              </button>
             </CardContent>
           </Card>
         </div>

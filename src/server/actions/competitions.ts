@@ -4,6 +4,7 @@ import { asc, count, eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
+import { deleteUploadThingFiles } from "@/lib/upload-text";
 import { cache } from "react";
 
 /**
@@ -112,6 +113,74 @@ export async function updateProblemEnabled(
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
     await db.update(problem).set({ enabled }).where(eq(problem.id, id));
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Sets the `enabled` flag on every problem in a competition in one query.
+ * Returns `{ success: true }` on success or `{ success: false, error }` on failure.
+ */
+export async function setAllProblemsEnabled(
+  competitionId: number,
+  enabled: boolean,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await db
+      .update(problem)
+      .set({ enabled })
+      .where(eq(problem.competition, competitionId));
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Deletes a competition and every problem that belongs to it, and removes
+ * all associated UploadThing files.
+ *
+ * The DB rows are deleted first so that a UploadThing failure never blocks
+ * the records from being removed.  File cleanup is best-effort.
+ */
+export async function deleteCompetition(
+  id: number,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    // Fetch all problem URL fields before deletion so we know what to clean up.
+    const problemRows = await db
+      .select({
+        problemTextUrl: problem.problem_text_url,
+        studentDataUrl: problem.student_data_url,
+        studentOutputUrl: problem.student_output_url,
+        testDataUrl: problem.test_data_url,
+        testOutputUrl: problem.test_output_url,
+      })
+      .from(problem)
+      .where(eq(problem.competition, id));
+
+    // Delete DB rows first.
+    await db.delete(problem).where(eq(problem.competition, id));
+    await db.delete(competition).where(eq(competition.id, id));
+
+    // Best-effort UploadThing cleanup — collect every URL across all problems.
+    const allUrls = problemRows.flatMap((p) => [
+      p.problemTextUrl,
+      p.studentDataUrl,
+      p.studentOutputUrl,
+      p.testDataUrl,
+      p.testOutputUrl,
+    ]);
+    await deleteUploadThingFiles(allUrls);
+
     return { success: true };
   } catch (e) {
     return {

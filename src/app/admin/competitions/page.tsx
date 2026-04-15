@@ -19,21 +19,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CompetitionLevelBadge } from "@/components/problems/competition-level-badge";
+import {
+  CompetitionLevelBadge,
+  LEVEL_LABELS,
+} from "@/components/problems/competition-level-badge";
 import { ProblemStatusBadge } from "@/components/admin/problem-status-badge";
+import { DeleteCompetitionButton } from "@/components/admin/competitions/delete-competition-button";
 import { UploadCompetitionDialog } from "@/components/admin/upload-competition-dialog";
 import { getCompetitionsWithCounts } from "@/server/actions/competitions";
+import type { CompetitionLevel } from "@/types/problems";
 
 export default async function CompetitionsPage() {
   const competitions = await getCompetitionsWithCounts();
 
   return (
     <div className="space-y-6">
-
       {/* Page header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h1 className="font-heading text-3xl font-bold tracking-tight">Competitions</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">
+            Competitions
+          </h1>
           <p className="text-sm text-muted-foreground">
             Manage competition packets and their problems.
           </p>
@@ -50,11 +56,13 @@ export default async function CompetitionsPage() {
               <CardTitle>All Competitions</CardTitle>
             </div>
             <Badge variant="secondary">
-              {competitions.length} competition{competitions.length !== 1 ? "s" : ""}
+              {competitions.length} competition
+              {competitions.length !== 1 ? "s" : ""}
             </Badge>
           </div>
           <CardDescription>
-            Click Edit to modify competition settings or toggle individual problems.
+            Click Edit to modify competition settings or toggle individual
+            problems.
           </CardDescription>
         </CardHeader>
 
@@ -99,7 +107,9 @@ export default async function CompetitionsPage() {
                         {comp.enabledProblems}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {comp.createdAt ? format(comp.createdAt, "MMM d, yyyy") : "—"}
+                        {comp.createdAt
+                          ? format(comp.createdAt, "MMM d, yyyy")
+                          : "—"}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
@@ -113,12 +123,20 @@ export default async function CompetitionsPage() {
                           {/* View public page — only when enabled */}
                           {comp.enabled && (
                             <Button variant="ghost" size="icon-sm" asChild>
-                              <Link href={`/competitions/${comp.id}`} target="_blank">
+                              <Link
+                                href={`/competitions/${comp.id}`}
+                                target="_blank"
+                              >
                                 <ExternalLink />
                                 <span className="sr-only">View</span>
                               </Link>
                             </Button>
                           )}
+                          <DeleteCompetitionButton
+                            competitionId={comp.id}
+                            label={`${comp.year} ${LEVEL_LABELS[(comp.level ?? "custom") as CompetitionLevel] ?? comp.level}`}
+                            problemCount={comp.totalProblems}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>
@@ -129,7 +147,6 @@ export default async function CompetitionsPage() {
           )}
         </CardContent>
       </Card>
-
     </div>
   );
 }

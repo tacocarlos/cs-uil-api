@@ -3,6 +3,8 @@ import type { ExtractedProblem } from "@/server/extraction/types";
 export interface EditableProblem extends ExtractedProblem {
   /** True when local edits have not been committed to the parent state */
   isDirty: boolean;
+  /** Whether this problem will be visible to students after saving */
+  enabled: boolean;
 }
 
 export interface CompetitionFormState {

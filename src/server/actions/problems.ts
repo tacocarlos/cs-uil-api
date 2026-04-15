@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
+import { deleteUploadThingFiles } from "@/lib/upload-text";
 import { fetchTextContent } from "@/lib/fetch-text";
 import { uploadTextFile } from "@/lib/upload-text";
 
@@ -210,14 +211,43 @@ export async function updateProblem(
 }
 
 /**
- * Deletes a problem row by ID.
- * Returns `{ success: true }` on success or `{ success: false, error }` on failure.
+ * Deletes a problem row by ID and removes its associated UploadThing files.
+ *
+ * The DB row is deleted first so that a UploadThing failure never blocks
+ * the record from being removed.  File cleanup is best-effort.
  */
 export async function deleteProblem(
   id: number,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
+    // Fetch the URL fields before deletion so we know what to clean up.
+    const rows = await db
+      .select({
+        problemTextUrl: problem.problem_text_url,
+        studentDataUrl: problem.student_data_url,
+        studentOutputUrl: problem.student_output_url,
+        testDataUrl: problem.test_data_url,
+        testOutputUrl: problem.test_output_url,
+      })
+      .from(problem)
+      .where(eq(problem.id, id))
+      .limit(1);
+
+    // Delete the DB row first.
     await db.delete(problem).where(eq(problem.id, id));
+
+    // Best-effort UploadThing cleanup — errors are logged, not re-thrown.
+    const row = rows[0];
+    if (row) {
+      await deleteUploadThingFiles([
+        row.problemTextUrl,
+        row.studentDataUrl,
+        row.studentOutputUrl,
+        row.testDataUrl,
+        row.testOutputUrl,
+      ]);
+    }
+
     return { success: true };
   } catch (e) {
     return {

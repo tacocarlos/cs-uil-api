@@ -5,6 +5,7 @@ import {
   competition as competitionTable,
   problem as problemTable,
 } from "@/server/db/schemas/core-schema";
+
 import {
   type CompetitionFormState,
   COMPETITION_LEVELS,
@@ -93,17 +94,18 @@ export async function createCompetition(
 // The data needed for a single problem — no extra client-state fields
 // ---------------------------------------------------------------------------
 
-export interface ProblemToSave {
+export type ProblemToSave = {
   name: string;
   number: number;
-  markdown: string;
+  problem_text_url: string | null;
   // pdfUrl removed — pdf_url column was dropped from the schema
-  studentData: string;
-  studentOutput: string;
-  testData: string;
-  testOutput: string;
+  student_data_url: string | null;
+  student_output_url: string | null;
+  test_data_url: string | null;
+  test_output_url: string | null;
   solution: string;
-}
+  enabled: boolean;
+};
 
 // ---------------------------------------------------------------------------
 // Phase 2 — save one problem at a time (one request per problem, ~50–200 KB)
@@ -123,46 +125,46 @@ export async function saveProblem(
 ): Promise<SaveProblemResult> {
   try {
     // Upload each text field to UploadThing. Returns null for empty fields.
-    const [
-      problemTextUrl,
-      studentDataUrl,
-      studentOutputUrl,
-      testDataUrl,
-      testOutputUrl,
-    ] = await Promise.all([
-      uploadTextFile(
-        problem.markdown,
-        `comp-${competitionId}-p${problem.number}-markdown.md`,
-      ),
-      uploadTextFile(
-        problem.studentData,
-        `comp-${competitionId}-p${problem.number}-student-data.txt`,
-      ),
-      uploadTextFile(
-        problem.studentOutput,
-        `comp-${competitionId}-p${problem.number}-student-output.txt`,
-      ),
-      uploadTextFile(
-        problem.testData,
-        `comp-${competitionId}-p${problem.number}-test-data.txt`,
-      ),
-      uploadTextFile(
-        problem.testOutput,
-        `comp-${competitionId}-p${problem.number}-test-output.txt`,
-      ),
-    ]);
+    // const [
+    //   problemTextUrl,
+    //   studentDataUrl,
+    //   studentOutputUrl,
+    //   testDataUrl,
+    //   testOutputUrl,
+    // ] = await Promise.all([
+    //   uploadTextFile(
+    //     problem.markdown,
+    //     `comp-${competitionId}-p${problem.number}-markdown.md`,
+    //   ),
+    //   uploadTextFile(
+    //     problem.studentData,
+    //     `comp-${competitionId}-p${problem.number}-student-data.dat`,
+    //   ),
+    //   uploadTextFile(
+    //     problem.studentOutput,
+    //     `comp-${competitionId}-p${problem.number}-student-output.out`,
+    //   ),
+    //   uploadTextFile(
+    //     problem.testData,
+    //     `comp-${competitionId}-p${problem.number}-test-data.dat`,
+    //   ),
+    //   uploadTextFile(
+    //     problem.testOutput,
+    //     `comp-${competitionId}-p${problem.number}-test-output.out`,
+    //   ),
+    // ]);
 
     await db.insert(problemTable).values({
       competition: competitionId,
       name: problem.name.slice(0, 128),
       number: problem.number,
-      problem_text_url: problemTextUrl,
-      student_data_url: studentDataUrl,
-      student_output_url: studentOutputUrl,
-      test_data_url: testDataUrl,
-      test_output_url: testOutputUrl,
+      problem_text_url: problem.problem_text_url,
+      student_data_url: problem.student_data_url,
+      student_output_url: problem.student_output_url,
+      test_data_url: problem.test_data_url,
+      test_output_url: problem.test_output_url,
       solution: problem.solution,
-      enabled: false,
+      enabled: problem.enabled,
     });
 
     return { success: true };
@@ -170,6 +172,47 @@ export async function saveProblem(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown database error.",
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// createBlankProblem — add a new empty problem to an existing competition
+// ---------------------------------------------------------------------------
+
+/**
+ * Inserts a minimal problem row for an existing competition and returns the
+ * new row's ID so the caller can navigate straight to the problem edit page.
+ *
+ * All content fields (URLs) are left null; the user fills them in via the
+ * problem editor.
+ */
+export async function createBlankProblem(
+  competitionId: number,
+  number: number,
+): Promise<
+  { success: true; problemId: number } | { success: false; error: string }
+> {
+  try {
+    const [row] = await db
+      .insert(problemTable)
+      .values({
+        competition: competitionId,
+        name: `Problem ${number}`,
+        number,
+        solution: "",
+        enabled: false,
+      })
+      .returning({ id: problemTable.id });
+
+    if (!row?.id) {
+      return { success: false, error: "Failed to create problem record." };
+    }
+    return { success: true, problemId: row.id };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Unknown database error.",
     };
   }
 }

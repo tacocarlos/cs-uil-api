@@ -62,6 +62,26 @@ export const problemFileRouter = {
 
       return { uploadedBy: metadata.userId, url: file.ufsUrl };
     }),
+  textUploader: f({
+    text: {
+      maxFileCount: 1,
+      maxFileSize: "512MB",
+    },
+  })
+    .middleware(async ({ req }) => {
+      const session = await auth.api.getSession({ headers: await headers() });
+      const user = session?.user;
+      if (user === undefined || user.role !== "admin") {
+        throw new UploadThingError("Unauthorized");
+      }
+      return { userId: user.id };
+    })
+    .onUploadComplete(async ({ metadata, file }) => {
+      console.log("Upload complete for userId:", metadata.userId);
+      console.log("file url", file.ufsUrl);
+
+      return { uploadedBy: metadata.userId, url: file.ufsUrl };
+    }),
 } satisfies FileRouter;
 
 export type ProblemFileRouter = typeof problemFileRouter;

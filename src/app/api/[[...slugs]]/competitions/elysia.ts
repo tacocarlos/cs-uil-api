@@ -46,5 +46,6 @@ export const CompetitionAPI = new Elysia()
     },
     {
       params: IdParam(),
+      tags: ["competition"],
     },
   );

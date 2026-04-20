@@ -1,12 +1,14 @@
 import { Elysia, t } from "elysia";
 import { db } from "@/server/db";
 import { problem, competition } from "@/server/db/schemas/core-schema";
-import { eq } from "drizzle-orm";
-
-function getVisibleProblem(p: typeof problem.$inferSelect) {
-  const { enabled, ...visibleData } = p;
-  return visibleData;
-}
+import { and, eq } from "drizzle-orm";
+import {
+  IdParam,
+  ProblemEnabled,
+  publicProblemSelect,
+  shortProblemSelect,
+  WithProblemEnabled,
+} from "../utils";
 
 export const ProblemAPI = new Elysia()
   .get(
@@ -14,27 +16,18 @@ export const ProblemAPI = new Elysia()
     ({ query }) => {
       if (query.limit !== undefined) {
         const result = db
-          .select({
-            id: problem.id,
-            competition_id: problem.competition,
-            name: problem.name,
-            number: problem.name,
-          })
+          .select(shortProblemSelect())
           .from(problem)
-          .where(eq(problem.enabled, true))
+          .where(ProblemEnabled())
           .limit(query.limit)
           .offset(query.offset ?? 0);
+        return result;
       }
 
       return db
-        .select({
-          id: problem.id,
-          competition_id: problem.competition,
-          name: problem.name,
-          number: problem.name,
-        })
+        .select(shortProblemSelect())
         .from(problem)
-        .where(eq(problem.enabled, true))
+        .where(ProblemEnabled())
         .offset(query.offset ?? 0);
     },
     {
@@ -43,11 +36,12 @@ export const ProblemAPI = new Elysia()
         offset: t.Optional(t.Integer({ default: 0 })),
       }),
       detail: {
+        operationId: "getAllProblems",
         summary:
           "Returns minimal data for all problems, or up to a limit if specified",
         description:
           "Returns the id, competition id, name, and problem number for all problems. If a limit or offset are provided, then they are used.",
-        tags: ["problem "],
+        tags: ["problem"],
       },
     },
   )
@@ -55,24 +49,46 @@ export const ProblemAPI = new Elysia()
     "/problems/:id",
     async ({ params: { id } }) => {
       const result = await db
-        .select()
+        .select(publicProblemSelect())
         .from(problem)
-        .where(eq(problem.id, id))
+        .where(WithProblemEnabled(eq(problem.id, id)))
         .limit(1);
 
       if (result.length > 0) {
-        return getVisibleProblem(result[0]!);
+        return result[0];
       }
 
       return undefined;
     },
     {
-      params: t.Object({
-        id: t.Integer(),
-      }),
+      params: IdParam(),
       detail: {
-        summary: "Get problem by id",
+        operationId: "getProblemById",
+        summary: "Get all problem data by id",
         description: "Retrieves the data for a single problem.",
+        tags: ["problem"],
+      },
+    },
+  )
+  .get(
+    "/problems/:id/markdown",
+    async ({ params: { id } }) => {
+      const dbRes = await db
+        .select({ url: problem.problem_text_url })
+        .from(problem)
+        .where(WithProblemEnabled(eq(problem.id, id)))
+        .limit(1);
+      if (dbRes.length == 0 || dbRes[0]?.url === null) {
+        return undefined;
+      }
+      const url = dbRes[0]!.url;
+      return await (await fetch(url)).text();
+    },
+    {
+      params: IdParam(),
+      detail: {
+        operationId: "getProblemMarkdownById",
+        summary: "Get problem markdown by id",
         tags: ["problem"],
       },
     },

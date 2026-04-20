@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Code2,
+  ConeIcon,
   Database,
   FileText,
   Loader2,
@@ -13,25 +14,19 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { updateProblem, type ProblemDetail } from "@/server/actions/problems";
+import {
+  deleteProblem,
+  updateProblem,
+  type ProblemDetail,
+} from "@/server/actions/problems";
 import { MarkdownPreview } from "@/components/admin/competition/markdown-preview";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 // ---------------------------------------------------------------------------
@@ -155,7 +150,11 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
             <CardTitle>Actions</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Button className="w-full" onClick={handleSave} disabled={isPending}>
+            <Button
+              className="w-full"
+              onClick={handleSave}
+              disabled={isPending}
+            >
               {isPending ? (
                 <>
                   <Loader2 className="animate-spin" />
@@ -167,6 +166,26 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
                   Save Problem
                 </>
               )}
+            </Button>
+            <Button
+              className="w-full bg-secondary text-foreground"
+              onClick={async () => {
+                // TODO: make this an "actual" (non-browser) dialog confirmation
+                const confirmation = confirm(
+                  "Are you sure you want to delete this problem?",
+                );
+                if (confirmation === false) {
+                  return;
+                }
+                const status = await deleteProblem(problem.id);
+                if (status.success === false) {
+                  toast.error("Failed to delete problem.");
+                } else {
+                  router.push("/admin/problems");
+                }
+              }}
+            >
+              Delete Problem
             </Button>
             <Button
               variant="outline"
@@ -263,9 +282,7 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
                       <Label>Test Expected Output</Label>
                       <Textarea
                         value={draft.testOutput}
-                        onChange={(e) =>
-                          setField("testOutput", e.target.value)
-                        }
+                        onChange={(e) => setField("testOutput", e.target.value)}
                         className="min-h-50 font-mono text-xs"
                         disabled={isPending}
                       />

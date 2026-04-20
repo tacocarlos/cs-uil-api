@@ -7,6 +7,8 @@ import {
   getPublicCompetitionData,
   IdParam,
   publicProblemSelect,
+  TCompetitionSchema,
+  TProblemSchema,
 } from "../utils";
 
 export const CompetitionAPI = new Elysia()
@@ -18,6 +20,7 @@ export const CompetitionAPI = new Elysia()
         .from(competition)
         .where(eq(competition.enabled, true))
         .offset(query.offset ?? 0);
+
       if (query.limit !== undefined) {
         return (await q.limit(query.limit)).map(getPublicCompetitionData);
       }
@@ -29,7 +32,9 @@ export const CompetitionAPI = new Elysia()
         limit: t.Optional(t.Integer()),
         offset: t.Optional(t.Integer()),
       }),
+      response: t.Array(TCompetitionSchema),
       detail: {
+        operationId: "getAllCompetitions",
         summary: "Returns a list of all competitions",
         tags: ["competition"],
       },
@@ -46,6 +51,11 @@ export const CompetitionAPI = new Elysia()
     },
     {
       params: IdParam(),
-      tags: ["competition"],
+      response: t.Array(TProblemSchema),
+      detail: {
+        operationId: "getCompetitionProblems",
+        summary: "Returns all problems for a given competition",
+        tags: ["competition"],
+      },
     },
   );

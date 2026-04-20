@@ -7,6 +7,8 @@ import {
   ProblemEnabled,
   publicProblemSelect,
   shortProblemSelect,
+  TProblemSchema,
+  TShortProblemSchema,
   WithProblemEnabled,
 } from "../utils";
 
@@ -15,13 +17,12 @@ export const ProblemAPI = new Elysia()
     "/problems/",
     ({ query }) => {
       if (query.limit !== undefined) {
-        const result = db
+        return db
           .select(shortProblemSelect())
           .from(problem)
           .where(ProblemEnabled())
           .limit(query.limit)
           .offset(query.offset ?? 0);
-        return result;
       }
 
       return db
@@ -35,6 +36,7 @@ export const ProblemAPI = new Elysia()
         limit: t.Optional(t.Integer()),
         offset: t.Optional(t.Integer({ default: 0 })),
       }),
+      response: t.Array(TShortProblemSchema),
       detail: {
         operationId: "getAllProblems",
         summary:
@@ -55,13 +57,17 @@ export const ProblemAPI = new Elysia()
         .limit(1);
 
       if (result.length > 0) {
-        return result[0];
+        return { success: true, problem: result[0]! };
       }
 
-      return undefined;
+      return { success: false, problem: null };
     },
     {
       params: IdParam(),
+      response: t.Object({
+        success: t.Boolean(),
+        problem: t.Nullable(TProblemSchema),
+      }),
       detail: {
         operationId: "getProblemById",
         summary: "Get all problem data by id",
@@ -78,14 +84,26 @@ export const ProblemAPI = new Elysia()
         .from(problem)
         .where(WithProblemEnabled(eq(problem.id, id)))
         .limit(1);
-      if (dbRes.length == 0 || dbRes[0]?.url === null) {
-        return undefined;
+
+      if (
+        dbRes.length === 0 ||
+        dbRes[0]?.url === null ||
+        dbRes[0]?.url === undefined
+      ) {
+        return { markdown: null };
       }
+
       const url = dbRes[0]!.url;
-      return await (await fetch(url)).text();
+      const md = await (await fetch(url)).text();
+      return {
+        markdown: md,
+      };
     },
     {
       params: IdParam(),
+      response: t.Object({
+        markdown: t.Nullable(t.String()),
+      }),
       detail: {
         operationId: "getProblemMarkdownById",
         summary: "Get problem markdown by id",

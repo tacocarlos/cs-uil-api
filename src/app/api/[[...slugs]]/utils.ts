@@ -1,4 +1,5 @@
 import { t, type TSchema } from "elysia";
+import { createSelectSchema } from "drizzle-typebox";
 import { and, eq } from "drizzle-orm";
 import { competition, problem } from "@db/schemas/core-schema";
 import type { SQLiteTableWithColumns } from "drizzle-orm/sqlite-core";
@@ -6,6 +7,18 @@ import type { SQLWrapper, TableConfig } from "drizzle-orm";
 
 type CompetitionSelectType = typeof competition.$inferSelect;
 type ProblemSelectType = typeof problem.$inferSelect;
+
+const _problemSelectSchema = createSelectSchema(problem);
+const _competitionSelectSchema = createSelectSchema(competition);
+
+export const TProblemSchema = t.Omit(_problemSelectSchema, ["enabled"]);
+export const TCompetitionSchema = t.Omit(_competitionSelectSchema, ["enabled"]);
+export const TShortProblemSchema = t.Object({
+  id: t.Number(),
+  competition_id: t.Number(),
+  name: t.String(),
+  number: t.Number(),
+});
 
 function getFields<T extends TableConfig>(table: SQLiteTableWithColumns<T>) {
   const {
@@ -38,7 +51,7 @@ export function getPublicProblemData(p: typeof problem.$inferSelect) {
 export function shortProblemSelect() {
   return {
     id: problem.id,
-    competiton_id: problem.competition,
+    competition_id: problem.competition,
     name: problem.name,
     number: problem.number,
   };

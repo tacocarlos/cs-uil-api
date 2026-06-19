@@ -4,6 +4,7 @@ import { problem, competition } from "@/server/db/schemas/core-schema";
 import { and, eq } from "drizzle-orm";
 import {
   IdParam,
+  OptionalInt,
   ProblemEnabled,
   publicProblemSelect,
   shortProblemSelect,
@@ -33,8 +34,8 @@ export const ProblemAPI = new Elysia()
     },
     {
       query: t.Object({
-        limit: t.Optional(t.Integer()),
-        offset: t.Optional(t.Integer({ default: 0 })),
+        limit: OptionalInt(),
+        offset: OptionalInt(0),
       }),
       response: t.Array(TShortProblemSchema),
       detail: {

@@ -66,6 +66,33 @@ export function getShortProblemData(p: ProblemSelectType) {
   };
 }
 
+/**
+ * An optional integer query parameter that tolerates empty-string values.
+ *
+ * Query params always arrive as strings, and OpenAPI doc UIs (plus some HTTP
+ * clients) serialize omitted optional params as empty strings (e.g.
+ * `?limit=&offset=`). `t.Optional(t.Integer())` rejects those with a 422
+ * because the property is present but cannot coerce to an integer. This
+ * coerces at the schema level, so it runs identically in local dev and in
+ * Vercel's AOT-compiled serverless build (unlike a `transform` hook that
+ * mutates `context.query`).
+ */
+export function OptionalInt(defaultValue?: number) {
+  return t.Optional(
+    t
+      .Transform(t.Union([t.String(), t.Integer()]))
+      .Decode((value): number | undefined => {
+        if (value === "" || value === undefined) return defaultValue;
+        const parsed = typeof value === "number" ? value : Number(value);
+        if (!Number.isInteger(parsed)) {
+          throw new Error("Expected integer");
+        }
+        return parsed;
+      })
+      .Encode((value) => value ?? defaultValue ?? 0),
+  );
+}
+
 export function IdParam() {
   return t.Object({ id: t.Number() });
 }

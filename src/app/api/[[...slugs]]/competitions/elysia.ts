@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import {
   getPublicCompetitionData,
   IdParam,
+  OptionalInt,
   publicProblemSelect,
   TCompetitionSchema,
   TProblemSchema,
@@ -29,8 +30,8 @@ export const CompetitionAPI = new Elysia()
     },
     {
       query: t.Object({
-        limit: t.Optional(t.Integer()),
-        offset: t.Optional(t.Integer()),
+        limit: OptionalInt(),
+        offset: OptionalInt(0),
       }),
       response: t.Array(TCompetitionSchema),
       detail: {

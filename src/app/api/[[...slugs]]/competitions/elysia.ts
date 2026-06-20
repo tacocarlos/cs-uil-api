@@ -12,7 +12,10 @@ import {
   TProblemSchema,
 } from "../utils";
 
-export const CompetitionAPI = new Elysia()
+// `normalize: "typebox"` avoids Elysia's "exact mirror" response-cleaning
+// codegen, which gets mangled by Next.js/Vercel minification and can rewrite
+// valid rows to `null` (response-validation 422 in production).
+export const CompetitionAPI = new Elysia({ normalize: "typebox" })
   .get(
     "/competition/",
     async ({ query }) => {

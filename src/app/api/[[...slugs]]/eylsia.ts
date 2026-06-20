@@ -12,7 +12,7 @@ const Version = new Elysia({ nativeStaticResponse: true }).get(
   },
 );
 
-export const UILApi = new Elysia({ prefix: "/api" })
+export const UILApi = new Elysia({ prefix: "/api", normalize: "typebox" })
   .use(cors())
   .use(openapi())
   .use(ProblemAPI)

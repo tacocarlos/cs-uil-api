@@ -13,12 +13,18 @@ import {
   WithProblemEnabled,
 } from "../utils";
 
-export const ProblemAPI = new Elysia()
+// `normalize: "typebox"` makes response cleaning use TypeBox's runtime
+// `Value.Clean` instead of Elysia's default "exact mirror" codegen. The
+// generated code path gets mangled by Next.js/Vercel's SWC minification in the
+// serverless build, which rewrote valid rows to `null` and produced a 422
+// (`{"type":"validation","on":"response","found":[null]}`). The runtime path is
+// minification-safe.
+export const ProblemAPI = new Elysia({ normalize: "typebox" })
   .get(
     "/problems/",
-    ({ query }) => {
+    async ({ query }) => {
       if (query.limit !== undefined) {
-        return db
+        return await db
           .select(shortProblemSelect())
           .from(problem)
           .where(ProblemEnabled())
@@ -26,7 +32,7 @@ export const ProblemAPI = new Elysia()
           .offset(query.offset ?? 0);
       }
 
-      return db
+      return await db
         .select(shortProblemSelect())
         .from(problem)
         .where(ProblemEnabled())

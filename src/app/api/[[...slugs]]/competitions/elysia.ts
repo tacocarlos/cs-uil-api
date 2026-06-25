@@ -1,4 +1,4 @@
-import { Elysia, t } from "elysia";
+import { Elysia, status, t } from "elysia";
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
 import { eq, and } from "drizzle-orm";
@@ -40,6 +40,28 @@ export const CompetitionAPI = new Elysia({ normalize: "typebox" })
       detail: {
         operationId: "getAllCompetitions",
         summary: "Returns a list of all competitions",
+        tags: ["competition"],
+      },
+    },
+  )
+  .get(
+    "/competition/:id",
+    async ({ params: { id } }) => {
+      const [comp] = await db
+        .select()
+        .from(competition)
+        .where(eq(competition.id, id));
+      if (comp === undefined) {
+        return status(404, null);
+      }
+
+      return comp;
+    },
+    {
+      params: IdParam(),
+      detail: {
+        operationId: "getCompetitionById",
+        summary: "Get competition data",
         tags: ["competition"],
       },
     },

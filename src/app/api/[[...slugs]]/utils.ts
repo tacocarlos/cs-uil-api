@@ -11,7 +11,23 @@ type ProblemSelectType = typeof problem.$inferSelect;
 const _problemSelectSchema = createSelectSchema(problem);
 const _competitionSelectSchema = createSelectSchema(competition);
 
-export const TProblemSchema = t.Omit(_problemSelectSchema, ["enabled"]);
+/**
+ * Columns that must never be exposed through the public API.
+ *
+ * `TProblemSchema` is derived from `createSelectSchema(problem)`, so any column
+ * added to the `problem` table is published automatically unless it is listed
+ * here. Keep this in sync with `publicProblemSelect` / `getPublicProblemData`.
+ */
+const PROBLEM_PRIVATE_FIELDS = [
+  "enabled",
+  "verification_status",
+  "verification_message",
+  "verified_at",
+] as const;
+
+export const TProblemSchema = t.Omit(_problemSelectSchema, [
+  ...PROBLEM_PRIVATE_FIELDS,
+]);
 export const TCompetitionSchema = t.Omit(_competitionSelectSchema, ["enabled"]);
 export const TShortProblemSchema = t.Object({
   id: t.Number(),
@@ -39,12 +55,24 @@ export function getPublicCompetitionData(c: typeof competition.$inferSelect) {
 }
 
 export function publicProblemSelect() {
-  const { enabled, ...allowedFields } = getFields(problem);
+  const {
+    enabled,
+    verification_status,
+    verification_message,
+    verified_at,
+    ...allowedFields
+  } = getFields(problem);
   return allowedFields;
 }
 
 export function getPublicProblemData(p: typeof problem.$inferSelect) {
-  const { enabled, ...VisibleData } = p;
+  const {
+    enabled,
+    verification_status,
+    verification_message,
+    verified_at,
+    ...VisibleData
+  } = p;
   return VisibleData;
 }
 

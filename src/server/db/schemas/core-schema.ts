@@ -23,6 +23,32 @@ export const competition = sqliteTable("competitions", (t) => ({
 
 const NAME_LENGTH = 128;
 
+/**
+ * Result of executing a problem's reference solution against its judge data.
+ *
+ * - `unverified` – never checked
+ * - `passed`     – produced output matching the expected output
+ * - `failed`     – ran successfully but the output did not match (needs review)
+ * - `error`      – compile error, runtime error, timeout, or judge unreachable
+ *                  (needs review)
+ * - `skipped`    – nothing to check (no solution, or no input/expected output)
+ */
+export const VERIFICATION_STATUSES = [
+  "unverified",
+  "passed",
+  "failed",
+  "error",
+  "skipped",
+] as const;
+
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+/** Statuses that require a human to look at the problem before enabling it. */
+export const VERIFICATION_NEEDS_REVIEW: readonly VerificationStatus[] = [
+  "failed",
+  "error",
+];
+
 export const problem = sqliteTable("problems", (t) => ({
   id: t.integer().primaryKey().notNull(),
   competition: t
@@ -45,6 +71,16 @@ export const problem = sqliteTable("problems", (t) => ({
   test_output_url: t.text(),
   solution: t.text().notNull(),
   enabled: t.integer({ mode: "boolean" }).default(false),
+  /**
+   * Judge0 verification state. Internal/admin-only — deliberately excluded
+   * from every public API projection (see `publicProblemSelect`).
+   */
+  verification_status: t
+    .text({ enum: VERIFICATION_STATUSES })
+    .default("unverified"),
+  /** Human-readable report: mismatch diff, compile output, or error detail. */
+  verification_message: t.text(),
+  verified_at: t.integer({ mode: "timestamp_ms" }),
 }));
 
 export const table = {

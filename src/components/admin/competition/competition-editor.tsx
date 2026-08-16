@@ -34,6 +34,7 @@ import {
 import type { ExtractionResult } from "@/server/extraction/types";
 
 import { CompetitionDetailsForm } from "./competition-details-form";
+import { needsIntervention } from "@/components/admin/verification-badge";
 import { ProblemEditorSheet } from "./problem-editor-sheet";
 import { ProblemsReviewList } from "./problems-review-list";
 import type { CompetitionFormState, EditableProblem } from "./types";
@@ -186,7 +187,16 @@ export function CompetitionEditor({
             "student",
           ),
           test_data_url: await uploadText(p.name, p.testData, "dat", "test"),
-          test_output_url: await uploadText(p.name, p.markdown, "out", "test"),
+          // NOTE: previously uploaded `p.markdown` here, which stored the
+          // problem statement as the expected judge output.
+          test_output_url: await uploadText(
+            p.name,
+            p.testOutput,
+            "out",
+            "test",
+          ),
+          verification_status: p.verification?.status,
+          verification_message: p.verification?.message ?? null,
         };
 
         const probResult = await saveProblem(competitionId, problemData);
@@ -203,8 +213,33 @@ export function CompetitionEditor({
     });
   }
 
+  /**
+   * Bulk enable/disable.
+   *
+   * Enabling never flips a problem whose solution failed verification — those
+   * require a human to look at them first. Disabling always applies.
+   */
   function handleToggleAll(enabled: boolean): void {
-    setProblems((prev) => prev.map((p) => ({ ...p, enabled })));
+    if (!enabled) {
+      setProblems((prev) => prev.map((p) => ({ ...p, enabled: false })));
+      return;
+    }
+
+    const blocked = problems.filter((p) => needsIntervention(p.verification?.status));
+
+    setProblems((prev) =>
+      prev.map((p) =>
+        needsIntervention(p.verification?.status) ? p : { ...p, enabled: true },
+      ),
+    );
+
+    if (blocked.length > 0) {
+      toast.warning(
+        `${blocked.length} problem${blocked.length === 1 ? "" : "s"} left disabled — solution output did not match. Review ${
+          blocked.length === 1 ? "it" : "them"
+        } before enabling.`,
+      );
+    }
   }
 
   function handleRemoveProblem(index: number): void {

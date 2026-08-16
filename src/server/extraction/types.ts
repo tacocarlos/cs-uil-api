@@ -36,6 +36,8 @@ export interface PdfProblemExtraction {
   studentInput: string;
 }
 
+import type { VerificationOutcome } from "@/server/judge0/types";
+
 /**
  * A single fully-resolved problem ready for the competition editor.
  */
@@ -54,6 +56,11 @@ export interface ExtractedProblem {
   markdown: string;
   /** Map of FIGURE_N placeholder → uploaded UploadThing URL */
   imageUrls: Record<string, string>;
+  /**
+   * Result of running `solution` against the extracted judge data on Judge0.
+   * `undefined` when verification was not requested for this run.
+   */
+  verification?: VerificationOutcome;
 }
 
 export interface ExtractionResult {

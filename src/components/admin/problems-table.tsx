@@ -1,18 +1,26 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  TriangleAlert,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { ProblemRow } from "@/types/problems";
+import type { VerificationStatus } from "@/server/db/schemas/core-schema";
+import type { GeneratedOutputKind } from "@/server/judge0/generate";
 import {
   Table,
   TableBody,
@@ -21,7 +29,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -33,6 +60,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProblemsToolbar } from "@/components/admin/problems-toolbar";
 import { ProblemStatusBadge } from "@/components/admin/problem-status-badge";
 import { ProblemRowActions } from "@/components/admin/problem-row-actions";
+import {
+  VerificationBadge,
+  needsIntervention,
+} from "@/components/admin/verification-badge";
+import { regenerateOutputsForProblems } from "@/server/actions/outputs";
+import { verifyProblems } from "@/server/actions/verification";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +73,34 @@ import { cn } from "@/lib/utils";
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+
+/**
+ * Sort ranking for the verification column — lowest rank first so the
+ * problems that need a human sort to the top in ascending order.
+ */
+const VERIFICATION_SORT_RANK: Record<VerificationStatus, number> = {
+  error: 0,
+  failed: 1,
+  unverified: 2,
+  skipped: 3,
+  passed: 4,
+};
+
+/** Human-readable names for the regeneratable output kinds. */
+const OUTPUT_KIND_LABELS: Record<GeneratedOutputKind, string> = {
+  test: "test output",
+  student: "student output",
+};
+
+/** The bulk-regeneration presets offered in the dropdown. */
+const REGENERATE_OPTIONS: ReadonlyArray<{
+  label: string;
+  kinds: GeneratedOutputKind[];
+}> = [
+  { label: "Test + student output", kinds: ["test", "student"] },
+  { label: "Test output only", kinds: ["test"] },
+  { label: "Student output only", kinds: ["student"] },
+];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,10 +113,19 @@ type SortColumn =
   | "level"
   | "year"
   | "status"
+  | "verification"
   | "createdAt"
   | "updatedAt";
 
 type SortDirection = "asc" | "desc";
+
+/**
+ * The `getProblems` projection with the verification fields it now returns.
+ * Kept local so the shared `ProblemRow` type stays free of admin-only columns.
+ */
+type ProblemsTableRow = ProblemRow & {
+  verificationStatus: VerificationStatus | null;
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,8 +136,13 @@ function formatDate(date: Date | null): string {
   return format(date, "MMM d, yyyy");
 }
 
+/** "test output and student output" */
+function describeKinds(kinds: GeneratedOutputKind[]): string {
+  return kinds.map((kind) => OUTPUT_KIND_LABELS[kind]).join(" and ");
+}
+
 function getSortValue(
-  problem: ProblemRow,
+  problem: ProblemsTableRow,
   column: SortColumn,
 ): string | number {
   switch (column) {
@@ -83,6 +158,8 @@ function getSortValue(
       return problem.competitionYear ?? 0;
     case "status":
       return problem.enabled === true ? 1 : 0;
+    case "verification":
+      return VERIFICATION_SORT_RANK[problem.verificationStatus ?? "unverified"];
     case "createdAt":
       return problem.createdAt?.getTime() ?? 0;
     case "updatedAt":
@@ -149,7 +226,7 @@ function SortableHeader({
 // ---------------------------------------------------------------------------
 
 interface ProblemsTableProps {
-  problems: ProblemRow[];
+  problems: ProblemsTableRow[];
 }
 
 export function ProblemsTable({ problems }: ProblemsTableProps) {
@@ -157,6 +234,7 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [verificationFilter, setVerificationFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
 
   // ── Sort state ─────────────────────────────────────────────────────────
@@ -194,6 +272,7 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
     setSearchQuery("");
     setLevelFilter("all");
     setStatusFilter("all");
+    setVerificationFilter("all");
     setYearFilter("all");
     setCurrentPage(1);
   }, []);
@@ -210,6 +289,11 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
 
   const handleStatusFilterChange = useCallback((value: string) => {
     setStatusFilter(value);
+    setCurrentPage(1);
+  }, []);
+
+  const handleVerificationFilterChange = useCallback((value: string) => {
+    setVerificationFilter(value);
     setCurrentPage(1);
   }, []);
 
@@ -244,6 +328,17 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
       result = result.filter((p) => (p.enabled === true) === wantActive);
     }
 
+    // Verification filter
+    if (verificationFilter !== "all") {
+      result =
+        verificationFilter === "needs-review"
+          ? result.filter((p) => needsIntervention(p.verificationStatus))
+          : result.filter(
+              (p) =>
+                (p.verificationStatus ?? "unverified") === verificationFilter,
+            );
+    }
+
     // Year filter
     if (yearFilter !== "all") {
       const year = Number(yearFilter);
@@ -271,6 +366,7 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
     searchQuery,
     levelFilter,
     statusFilter,
+    verificationFilter,
     yearFilter,
     sortColumn,
     sortDirection,
@@ -292,12 +388,216 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
 
   const router = useRouter();
 
+  // ── Bulk verification ──────────────────────────────────────────────────
+  const [isVerifyingAll, startVerifyingAll] = useTransition();
+
+  const handleVerifyAll = useCallback(() => {
+    const confirmed = window.confirm(
+      "Verify every problem?\n\nThis re-runs each problem's reference solution on Judge0 and compares its output. It may take several minutes.",
+    );
+    if (!confirmed) return;
+
+    startVerifyingAll(async () => {
+      const result = await verifyProblems();
+
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+
+      const { summary } = result;
+      const checked =
+        summary.passed +
+        summary.failed +
+        summary.error +
+        summary.skipped +
+        summary.unverified;
+
+      const parts: string[] = [];
+      if (summary.passed > 0) parts.push(`${summary.passed} passed`);
+      if (summary.failed > 0) parts.push(`${summary.failed} mismatched`);
+      if (summary.error > 0) parts.push(`${summary.error} error`);
+      if (summary.skipped > 0) parts.push(`${summary.skipped} skipped`);
+
+      const message = `${checked} checked${
+        parts.length > 0 ? ` — ${parts.join(", ")}` : ""
+      }`;
+
+      if (summary.failed > 0 || summary.error > 0) {
+        toast.error(message);
+      } else {
+        toast.success(message);
+      }
+
+      router.refresh();
+    });
+  }, [router]);
+
+  // ── Bulk output regeneration ───────────────────────────────────────────
+  const [isRegeneratingAll, startRegeneratingAll] = useTransition();
+
+  /** Non-null while the confirmation dialog is open; holds the chosen kinds. */
+  const [pendingKinds, setPendingKinds] = useState<
+    GeneratedOutputKind[] | null
+  >(null);
+
+  const isBusy = isVerifyingAll || isRegeneratingAll;
+
+  const handleRegenerateConfirm = useCallback(() => {
+    const kinds = pendingKinds;
+    if (!kinds) return;
+
+    startRegeneratingAll(async () => {
+      const result = await regenerateOutputsForProblems(undefined, kinds);
+
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+
+      const { entries, summary } = result;
+
+      const parts: string[] = [];
+      if (summary.applied > 0) parts.push(`${summary.applied} updated`);
+      if (summary.unchanged > 0) parts.push(`${summary.unchanged} unchanged`);
+      if (summary.failed > 0) parts.push(`${summary.failed} failed`);
+
+      const total = entries.length;
+      const message = `${total} ${total === 1 ? "problem" : "problems"}${
+        parts.length > 0 ? ` — ${parts.join(", ")}` : ""
+      }`;
+
+      if (summary.failed > 0) {
+        toast.error(message);
+      } else {
+        toast.success(message);
+      }
+
+      router.refresh();
+    });
+  }, [pendingKinds, router]);
+
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Problems</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>Problems</CardTitle>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleVerifyAll}
+              disabled={isBusy}
+            >
+              {isVerifyingAll ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                <>
+                  <ShieldCheck />
+                  Verify All
+                </>
+              )}
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={isBusy}>
+                  {isRegeneratingAll ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Regenerating…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw />
+                      Regenerate Outputs
+                      <ChevronDown className="text-muted-foreground" />
+                    </>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Regenerate from solution</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {REGENERATE_OPTIONS.map((option) => (
+                  <DropdownMenuItem
+                    key={option.kinds.join("+")}
+                    onSelect={() => setPendingKinds(option.kinds)}
+                  >
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
       </CardHeader>
+
+      {/* Destructive-action confirmation for bulk regeneration */}
+      <AlertDialog
+        open={pendingKinds !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingKinds(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10">
+              <TriangleAlert className="text-destructive" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Regenerate expected output?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This re-runs{" "}
+              <strong className="text-foreground">every problem's</strong>{" "}
+              solution on Judge0 to regenerate the{" "}
+              <strong className="text-foreground">
+                {describeKinds(pendingKinds ?? [])}
+              </strong>
+              . It may take several minutes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <ul className="-mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+            <li>
+              For every problem whose produced output differs, the{" "}
+              <strong className="text-foreground">
+                stored expected output is overwritten
+              </strong>
+              . This cannot be undone. Problems whose solution fails to compile
+              keep what they have.
+            </li>
+            <li>
+              The expected output then comes from the solution itself, so
+              verification can no longer independently disagree with it — each
+              affected problem is reset to{" "}
+              <strong className="text-foreground">unverified</strong>.
+            </li>
+            <li>
+              This targets{" "}
+              <strong className="text-foreground">all problems</strong>, not
+              just the rows matching your current filters.
+            </li>
+          </ul>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRegeneratingAll}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isRegeneratingAll}
+              onClick={handleRegenerateConfirm}
+            >
+              {isRegeneratingAll ? "Regenerating…" : "Yes, overwrite"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <CardContent className="flex flex-col gap-4">
         {/* Toolbar */}
@@ -308,6 +608,8 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
           onLevelFilterChange={handleLevelFilterChange}
           statusFilter={statusFilter}
           onStatusFilterChange={handleStatusFilterChange}
+          verificationFilter={verificationFilter}
+          onVerificationFilterChange={handleVerificationFilterChange}
           yearFilter={yearFilter}
           onYearFilterChange={handleYearFilterChange}
           availableYears={availableYears}
@@ -356,6 +658,15 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
                   />
                 </TableHead>
 
+                {/* Verified */}
+                <TableHead>
+                  <SortableHeader
+                    column="verification"
+                    label="Verified"
+                    {...sortProps}
+                  />
+                </TableHead>
+
                 {/* Created */}
                 <TableHead>
                   <SortableHeader
@@ -383,7 +694,7 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
               {paginatedRows.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-36 text-center text-sm text-muted-foreground"
                   >
                     No problems match the current filters.
@@ -429,6 +740,11 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
                     {/* Status */}
                     <TableCell>
                       <ProblemStatusBadge enabled={problem.enabled} />
+                    </TableCell>
+
+                    {/* Verified */}
+                    <TableCell>
+                      <VerificationBadge status={problem.verificationStatus} />
                     </TableCell>
 
                     {/* Created */}

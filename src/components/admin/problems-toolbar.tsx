@@ -30,6 +30,15 @@ const LEVEL_LABELS: Record<string, string> = {
   custom: "Custom",
 };
 
+const VERIFICATION_OPTIONS = [
+  { value: "needs-review", label: "Needs Review" },
+  { value: "passed", label: "Verified" },
+  { value: "failed", label: "Mismatch" },
+  { value: "error", label: "Run Error" },
+  { value: "skipped", label: "Not Checkable" },
+  { value: "unverified", label: "Unchecked" },
+] as const;
+
 export interface ProblemsToolbarProps {
   searchQuery: string;
   onSearchChange: (value: string) => void;
@@ -37,6 +46,8 @@ export interface ProblemsToolbarProps {
   onLevelFilterChange: (value: string) => void;
   statusFilter: string;
   onStatusFilterChange: (value: string) => void;
+  verificationFilter: string;
+  onVerificationFilterChange: (value: string) => void;
   yearFilter: string;
   onYearFilterChange: (value: string) => void;
   availableYears: number[];
@@ -52,6 +63,8 @@ export function ProblemsToolbar({
   onLevelFilterChange,
   statusFilter,
   onStatusFilterChange,
+  verificationFilter,
+  onVerificationFilterChange,
   yearFilter,
   onYearFilterChange,
   availableYears,
@@ -63,6 +76,7 @@ export function ProblemsToolbar({
     searchQuery !== "" ||
     levelFilter !== "all" ||
     statusFilter !== "all" ||
+    verificationFilter !== "all" ||
     yearFilter !== "all";
 
   const isFiltered = filteredCount !== totalCount;
@@ -108,6 +122,24 @@ export function ProblemsToolbar({
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="inactive">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Verification filter */}
+          <Select
+            value={verificationFilter}
+            onValueChange={onVerificationFilterChange}
+          >
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All Checks" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Checks</SelectItem>
+              {VERIFICATION_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 

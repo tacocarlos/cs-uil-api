@@ -23,6 +23,14 @@ export const env = createEnv({
     TURSO_AUTH_TOKEN: z.string(),
     UPLOADTHING_TOKEN: z.string(),
     ANTHROPIC_API_KEY: z.string(),
+    /**
+     * Base URL of the Judge0 instance used to verify reference solutions.
+     * Note: judge0.lunaghs.dev serves over plain HTTP (port 443 is closed),
+     * so the default is http://, not https://.
+     */
+    JUDGE0_URL: z.string().url().default("http://judge0.lunaghs.dev"),
+    /** Optional auth token, sent as X-Auth-Token when the instance requires it. */
+    JUDGE0_TOKEN: z.string().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -56,6 +64,8 @@ export const env = createEnv({
     NODE_ENV: process.env.NODE_ENV,
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    JUDGE0_URL: process.env.JUDGE0_URL,
+    JUDGE0_TOKEN: process.env.JUDGE0_TOKEN,
 
     NEXT_PUBLIC_NODE_ENV: process.env.NODE_ENV,
   },

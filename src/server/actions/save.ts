@@ -6,6 +6,7 @@ import {
   problem as problemTable,
 } from "@/server/db/schemas/core-schema";
 
+import type { VerificationStatus } from "@/server/db/schemas/core-schema";
 import {
   type CompetitionFormState,
   COMPETITION_LEVELS,
@@ -105,6 +106,9 @@ export type ProblemToSave = {
   test_output_url: string | null;
   solution: string;
   enabled: boolean;
+  /** Judge0 verification carried over from the extraction run, if any. */
+  verification_status?: VerificationStatus;
+  verification_message?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -165,6 +169,9 @@ export async function saveProblem(
       test_output_url: problem.test_output_url,
       solution: problem.solution,
       enabled: problem.enabled,
+      verification_status: problem.verification_status ?? "unverified",
+      verification_message: problem.verification_message ?? null,
+      verified_at: problem.verification_status ? new Date() : null,
     });
 
     return { success: true };

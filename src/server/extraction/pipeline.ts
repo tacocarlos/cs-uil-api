@@ -1,6 +1,7 @@
 import { extractZip, normalizeName } from "./zip-extractor";
 import { extractPdfProblems } from "./pdf-extractor";
 import { uploadImages } from "./image-uploader";
+import { verifyAll, verifySolution } from "@/server/judge0/verify";
 import type { ExtractedProblem, ExtractionResult } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -18,7 +19,17 @@ import type { ExtractedProblem, ExtractionResult } from "./types";
  * 5. Falls back gracefully when a problem exists only in one source.
  */
 export async function runExtractionPipeline(
-  params: { dataUrl: string; pdfUrl: string; zipFilename?: string },
+  params: {
+    dataUrl: string;
+    pdfUrl: string;
+    zipFilename?: string;
+    /**
+     * Execute each extracted solution on Judge0 and compare its output to the
+     * extracted expected output. Defaults to `true`; disable to skip the
+     * (network-bound) verification phase.
+     */
+    verifySolutions?: boolean;
+  },
   onProgress: (message: string, percent: number) => void = () => {},
 ): Promise<ExtractionResult> {
   let reported = 0;
@@ -157,11 +168,46 @@ export async function runExtractionPipeline(
   // -------------------------------------------------------------------------
   problems.sort((a, b) => a.number - b.number);
 
+  // -------------------------------------------------------------------------
+  // 7. Verify each solution on Judge0.
+  //
+  //    Extraction is heuristic — the judge data and the solution come from two
+  //    different sources (ZIP vs. AI-parsed PDF), so a mismatch here is the
+  //    strongest signal that a problem was assembled incorrectly and needs a
+  //    human to look at it before it is published.
+  //
+  //    Runs with bounded concurrency and never throws: a verification outage
+  //    must not lose an otherwise-successful extraction.
+  // -------------------------------------------------------------------------
+  if (params.verifySolutions !== false && problems.length > 0) {
+    onProgress("Verifying solutions against judge data…", Math.max(reported, 94));
+    reported = Math.max(reported, 94);
+
+    let completed = 0;
+    await verifyAll(problems, async (p) => {
+      p.verification = await verifySolution({
+        solution: p.solution,
+        studentData: p.studentData,
+        studentOutput: p.studentOutput,
+        testData: p.testData,
+        testOutput: p.testOutput,
+        problemName: p.name,
+        problemNumber: p.number,
+      });
+
+      completed += 1;
+      onProgress(
+        `Verified ${completed}/${problems.length} solutions…`,
+        Math.min(98, 94 + Math.round((completed / problems.length) * 4)),
+      );
+    });
+  }
+
   onProgress("Extraction complete", Math.max(reported, 99));
   reported = Math.max(reported, 99);
 
   // -------------------------------------------------------------------------
-  // 7. Return the complete extraction result
+  // 8. Return the complete extraction result
   // -------------------------------------------------------------------------
   return { yearHint, levelHint, problems };
 }

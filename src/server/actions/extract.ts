@@ -8,6 +8,11 @@ export interface ExtractCompetitionParams {
   pdfUrl: string;
   /** Original ZIP filename, used to infer year/level as a fallback */
   zipFilename?: string;
+  /**
+   * Run each extracted solution on Judge0 and compare against the extracted
+   * expected output. Defaults to `true`.
+   */
+  verifySolutions?: boolean;
 }
 
 /**

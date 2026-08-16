@@ -76,6 +76,53 @@
     oklch(0.922 0 0);
   --sidebar-ring:
     oklch(0.708 0 0);
+
+  /*
+   * Code editor surface and syntax palette.
+   *
+   * The editor is an off-black well in BOTH site themes, so this palette is
+   * deliberately theme-independent — there is no `.dark` override. Aliasing
+   * --foreground/--muted-foreground here would be wrong: in light mode those
+   * resolve to near-black and would be invisible on the dark surface.
+   *
+   * The hues are still the ones the design system sanctions: the primary red
+   * family (~25) for keywords, and the chart blue family (~252) for literals.
+   * Identifiers and punctuation stay neutral, separated by weight rather than
+   * colour, which keeps the well from becoming the one rainbow on the site.
+   *
+   * --code-bg is an off-black — the familiar editor surface, ~#1e1e1e — rather
+   * than the theme's dark --background, which resolves to rgb(10,10,10) and
+   * reads as pure black. It sits a touch above --card (0.205) so in dark mode
+   * the well is a subtly raised code surface, separated by --code-border.
+   */
+  --code-bg:
+    oklch(0.235 0 0);
+  --code-fg:
+    oklch(0.985 0 0);
+  --code-border:
+    oklch(1 0 0 / 12%);
+  --code-keyword:
+    oklch(0.7 0.19 25);
+  --code-string:
+    oklch(0.79 0.11 252);
+  --code-number:
+    oklch(0.86 0.09 252);
+  --code-type:
+    oklch(0.91 0.025 258);
+  --code-function:
+    oklch(0.87 0.03 258);
+  --code-variable:
+    var(--code-fg);
+  --code-comment:
+    oklch(0.708 0 0);
+  /*
+   * Punctuation sits between identifiers and comments: braces, semicolons and
+   * operators carry structure, so they must not recede as far as prose does.
+   */
+  --code-operator:
+    color-mix(in oklch, var(--code-fg) 65%, var(--code-comment));
+  --code-invalid:
+    oklch(0.704 0.191 22.216);
 }
 
 .dark {
@@ -137,6 +184,10 @@
     oklch(0.269 0 0);
   --sidebar-accent-foreground:
     oklch(0.985 0 0);
+  /*
+   * No --code-* overrides here on purpose: the editor is an off-black well in
+   * both themes, so its palette is defined once in :root.
+   */
   --sidebar-border:
     oklch(1 0 0 / 10%);
   --sidebar-ring:

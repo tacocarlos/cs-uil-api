@@ -22,6 +22,11 @@ export const env = createEnv({
     TURSO_CONNECTION_URL: z.string(),
     TURSO_AUTH_TOKEN: z.string(),
     UPLOADTHING_TOKEN: z.string(),
+    /**
+     * OpenRouter key. LLM calls that fail because the Anthropic account is out
+     * of credits are retried through OpenRouter.
+     */
+    OPEN_ROUTER_API_KEY: z.string(),
     ANTHROPIC_API_KEY: z.string(),
     /**
      * Base URL of the Judge0 instance used to verify reference solutions.
@@ -66,7 +71,7 @@ export const env = createEnv({
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     JUDGE0_URL: process.env.JUDGE0_URL,
     JUDGE0_TOKEN: process.env.JUDGE0_TOKEN,
-
+    OPEN_ROUTER_API_KEY: process.env.OPEN_ROUTER_API_KEY,
     NEXT_PUBLIC_NODE_ENV: process.env.NODE_ENV,
   },
   /**

@@ -15,6 +15,7 @@
 		"dev": "next dev --turbo",
 		"preview": "next build && next start",
 		"start": "next start",
+		"smoke:openrouter": "bun run scripts/smoke-openrouter.ts",
 		"test:code-theme": "bun run scripts/check-code-contrast.ts",
 		"test:judge0": "bun run scripts/verify-logic-check.ts",
 		"typecheck": "tsc --noEmit"
@@ -35,6 +36,7 @@
 		"@elysiajs/openapi": "^1.4.14",
 		"@lezer/highlight": "^1.2.3",
 		"@libsql/client": "^0.14.0",
+		"@openrouter/ai-sdk-provider": "2.10.0",
 		"@t3-oss/env-nextjs": "^0.12.0",
 		"@types/adm-zip": "^0.5.8",
 		"@uiw/react-codemirror": "^4.25.11",

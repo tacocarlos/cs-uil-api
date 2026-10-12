@@ -1,4 +1,9 @@
 import AdmZip from "adm-zip";
+import { APICallError, NoObjectGeneratedError } from "ai";
+import {
+  isCreditExhaustion,
+  isOutputTruncation,
+} from "../src/server/ai/fallback";
 import { runsWithoutInput } from "../src/server/judge0/types";
 import { verifySolution, compareOutput } from "../src/server/judge0/verify";
 import { generateOutputs } from "../src/server/judge0/generate";
@@ -98,6 +103,67 @@ check("renames constructor refs", (ctor.source.match(/\bMain\b/g) ?? []).length,
 
 const py = prepareSource("print(1)", detectLanguage("print(1)"));
 check("python untouched", py.source, "print(1)");
+
+console.log("\n── isCreditExhaustion ──");
+const apiErr = (statusCode: number | undefined, body = "") =>
+  new APICallError({
+    message: body || "request failed",
+    url: "https://api.anthropic.com/v1/messages",
+    requestBodyValues: {},
+    statusCode,
+    responseBody: body,
+    isRetryable: false,
+  });
+
+check("402 is credit exhaustion", isCreditExhaustion(apiErr(402)), true);
+check(
+  "400 with billing message (Anthropic's real shape)",
+  isCreditExhaustion(apiErr(400, "Your credit balance is too low")),
+  true,
+);
+check(
+  "500 with billing message (streaming transport collapses to 500)",
+  isCreditExhaustion(apiErr(500, '{"error":{"message":"insufficient credit"}}')),
+  true,
+);
+check(
+  "403 with billing body",
+  isCreditExhaustion(apiErr(403, '{"error":"insufficient credit balance"}')),
+  true,
+);
+check(
+  "429 with quota body",
+  isCreditExhaustion(apiErr(429, "quota exceeded")),
+  true,
+);
+check(
+  "plain 429 rate limit is NOT",
+  isCreditExhaustion(apiErr(429, "rate limit exceeded, slow down")),
+  false,
+);
+check("plain 403 permission is NOT", isCreditExhaustion(apiErr(403, "forbidden")), false);
+check("plain 400 bad request is NOT", isCreditExhaustion(apiErr(400, "invalid request")), false);
+check("plain 500 server error is NOT", isCreditExhaustion(apiErr(500, "internal error")), false);
+check("non-API error is NOT", isCreditExhaustion(new Error("network down")), false);
+check("undefined is NOT", isCreditExhaustion(undefined), false);
+
+console.log("\n── isOutputTruncation ──");
+const noObjErr = (finishReason: string) =>
+  new NoObjectGeneratedError({
+    message: "could not parse",
+    response: { id: "x", timestamp: new Date(), modelId: "m" },
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    } as never,
+    finishReason: finishReason as never,
+  });
+
+check("finishReason 'length' is truncation", isOutputTruncation(noObjErr("length")), true);
+check("finishReason 'stop' is NOT", isOutputTruncation(noObjErr("stop")), false);
+check("non-NoObjectGeneratedError is NOT", isOutputTruncation(new Error("x")), false);
+check("undefined is NOT", isOutputTruncation(undefined), false);
 
 console.log("\n── runsWithoutInput ──");
 check("problem 1", runsWithoutInput(1), true);

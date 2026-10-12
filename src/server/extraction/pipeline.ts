@@ -59,7 +59,13 @@ export async function runExtractionPipeline(
         Math.max(reported, 15),
       );
       reported = Math.max(reported, 15);
-      const result = await extractPdfProblems(params.pdfUrl);
+      // PDF extraction is chunked; map chunk completion onto the 15–72% band
+      // so the loading bar advances per chunk instead of jumping at the end.
+      const result = await extractPdfProblems(params.pdfUrl, (message, done, total) => {
+        const pct = total > 0 ? 15 + Math.round((done / total) * (72 - 15)) : 15;
+        onProgress(message, Math.max(reported, pct));
+        reported = Math.max(reported, pct);
+      });
       onProgress("AI extraction complete", Math.max(reported, 72));
       reported = Math.max(reported, 72);
       return result;

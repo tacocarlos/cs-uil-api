@@ -1,7 +1,9 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { generateObject } from "ai";
 import { z } from "zod";
 
+import {
+  CHEAP_MODEL,
+  generateObjectWithFallback,
+} from "@/server/ai/fallback";
 import type { DetectedLanguage } from "./language";
 
 /**
@@ -19,7 +21,7 @@ import type { DetectedLanguage } from "./language";
  */
 
 /** Cheapest model already used elsewhere in this project. */
-const REWRITE_MODEL = "claude-haiku-4-5";
+const REWRITE_MODEL = CHEAP_MODEL;
 
 /** Guard against sending pathological inputs to the model. */
 const MAX_SOURCE_CHARS = 40_000;
@@ -102,8 +104,8 @@ export async function rewriteSolutionForStdin(
     .join("\n");
 
   try {
-    const { object } = await generateObject({
-      model: anthropic(REWRITE_MODEL),
+    const { object, provider } = await generateObjectWithFallback({
+      model: REWRITE_MODEL,
       schema: rewriteSchema,
       system: SYSTEM_PROMPT,
       temperature: 0,
@@ -114,6 +116,8 @@ export async function rewriteSolutionForStdin(
         },
       ],
     });
+
+    const via = provider === "openrouter" ? " (via OpenRouter)" : "";
 
     const rewritten = object.source.trim();
     if (!object.changed || rewritten.length === 0) {
@@ -127,7 +131,7 @@ export async function rewriteSolutionForStdin(
     return {
       source: rewritten,
       changed: true,
-      note: `Rewrote solution to read stdin via ${REWRITE_MODEL}: ${object.summary}`,
+      note: `Rewrote solution to read stdin via ${REWRITE_MODEL}${via}: ${object.summary}`,
     };
   } catch (e) {
     return {

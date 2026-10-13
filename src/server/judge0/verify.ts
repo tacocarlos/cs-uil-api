@@ -1,5 +1,6 @@
 import { createSolutionRunner } from "./runner";
 import type { RunnerOptions } from "./runner";
+import { describeLimitKill } from "./client";
 import type { Judge0RunResult } from "./client";
 import { JUDGE0_STATUS, runsWithoutInput } from "./types";
 import type {
@@ -140,10 +141,13 @@ function interpretRun(
 
   // Status 7–12 are the runtime-error family (SIGSEGV, NZEC, etc.).
   if (run.statusId > JUDGE0_STATUS.COMPILATION_ERROR) {
+    const limitHint = describeLimitKill(run);
     return {
       ...base,
       status: "error",
-      message: `Runtime error: ${run.statusDescription}`,
+      message: `Runtime error: ${run.statusDescription}${
+        limitHint ? ` — ${limitHint}` : ""
+      }`,
       stdout: truncate(run.stdout),
       stderr: truncate(run.stderr || run.message),
     };

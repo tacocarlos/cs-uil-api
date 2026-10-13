@@ -24,12 +24,13 @@ import {
   VerificationBadge,
   verificationDescription,
 } from "@/components/admin/verification-badge";
-import { generateDraftOutputs } from "@/server/actions/outputs";
+import {
+  generateDraftOutputs,
+  type GenerateOutputsPreviewResult,
+} from "@/server/actions/outputs";
+import { readTextRef } from "@/lib/text-ref-client";
 import { verifyDraftProblem } from "@/server/actions/verification";
-import type {
-  GeneratedOutputKind,
-  GenerateOutputsResult,
-} from "@/server/judge0/generate";
+import type { GeneratedOutputKind } from "@/server/judge0/generate";
 import type { VerificationOutcome } from "@/server/judge0/types";
 import { parseCompileErrorLine } from "@/server/judge0/language";
 import { CodeEditor } from "@/components/admin/code-editor";
@@ -50,6 +51,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { MarkdownPreview } from "./markdown-preview";
+import { draftDataRefs } from "./draft-refs";
 import type { EditableProblem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -120,7 +122,7 @@ export function ProblemEditorSheet({
   const [isVerifying, startVerifying] = useTransition();
 
   /** Latest generated-output run shown alongside the verification report. */
-  const [generated, setGenerated] = useState<GenerateOutputsResult | null>(
+  const [generated, setGenerated] = useState<GenerateOutputsPreviewResult | null>(
     null,
   );
   const [isGenerating, startGenerating] = useTransition();
@@ -164,12 +166,15 @@ export function ProblemEditorSheet({
     const current = problem;
 
     startVerifying(async () => {
+      const refs = await draftDataRefs(draft).catch((e: unknown) => {
+        toast.error(e instanceof Error ? e.message : "Upload failed.");
+        return null;
+      });
+      if (!refs) return;
+
       const result = await verifyDraftProblem({
         solution: draft.solution,
-        studentData: draft.studentData,
-        studentOutput: draft.studentOutput,
-        testData: draft.testData,
-        testOutput: draft.testOutput,
+        ...refs,
         problemName: draft.name,
         // The number is not editable in the draft, so read it from the problem.
         problemNumber: problem?.number,
@@ -221,12 +226,15 @@ export function ProblemEditorSheet({
     if (!problem) return;
 
     startGenerating(async () => {
+      const refs = await draftDataRefs(draft).catch((e: unknown) => {
+        toast.error(e instanceof Error ? e.message : "Upload failed.");
+        return null;
+      });
+      if (!refs) return;
+
       const result = await generateDraftOutputs({
         solution: draft.solution,
-        studentData: draft.studentData,
-        testData: draft.testData,
-        studentOutput: draft.studentOutput,
-        testOutput: draft.testOutput,
+        ...refs,
         problemName: draft.name,
         // The number is not editable in the draft, so read it from the problem.
         problemNumber: problem?.number,
@@ -262,20 +270,27 @@ export function ProblemEditorSheet({
    * Copies generated output(s) into the draft. The Test Data tab's textareas are
    * bound to the same draft state, so they update immediately.
    */
-  function applyGenerated(kinds: GeneratedOutputKind[]): void {
+  async function applyGenerated(kinds: GeneratedOutputKind[]): Promise<void> {
     if (!problem || !generated) return;
 
     const patch: Partial<DraftState> = {};
     const applied: string[] = [];
 
-    for (const kind of kinds) {
-      const entry = generated.outputs.find((o) => o.kind === kind);
-      if (!entry || entry.status !== "ok" || entry.output === undefined) {
-        continue;
+    try {
+      for (const kind of kinds) {
+        const entry = generated.outputs.find((o) => o.kind === kind);
+        if (!entry || entry.status !== "ok" || entry.outputRef === undefined) {
+          continue;
+        }
+        // `output` is only a preview; the full text sits behind the ref.
+        const full = await readTextRef(entry.outputRef);
+        if (kind === "test") patch.testOutput = full;
+        else patch.studentOutput = full;
+        applied.push(generatedFieldLabel(kind));
       }
-      if (kind === "test") patch.testOutput = entry.output;
-      else patch.studentOutput = entry.output;
-      applied.push(generatedFieldLabel(kind));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load the output.");
+      return;
     }
 
     if (applied.length === 0) return;

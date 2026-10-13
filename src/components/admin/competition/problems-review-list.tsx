@@ -19,6 +19,7 @@ import {
   Code2,
   Database,
   FileText,
+  Loader2,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -70,6 +71,8 @@ function verificationDetail(p: EditableProblem): string {
 
 interface ProblemsReviewListProps {
   problems: EditableProblem[];
+  /** The problem being verified in the background right now, if any. */
+  verifyingUid?: string;
   onEdit: (index: number) => void;
   onRemove: (index: number) => void;
   onToggleAll: (enabled: boolean) => void;
@@ -77,6 +80,7 @@ interface ProblemsReviewListProps {
 
 export function ProblemsReviewList({
   problems,
+  verifyingUid,
   onEdit,
   onRemove,
   onToggleAll,
@@ -122,7 +126,7 @@ export function ProblemsReviewList({
       <div className="divide-y divide-border/40">
         {problems.map((problem, index) => (
           <div
-            key={problem.number}
+            key={problem.uid}
             className={cn(
               "flex items-center gap-3 border-l-2 border-transparent py-3 pr-1 pl-2",
               needsIntervention(problem.verification?.status) &&
@@ -173,30 +177,39 @@ export function ProblemsReviewList({
             </div>
 
             {/* Verification status */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex shrink-0 items-center">
-                  <VerificationBadge
-                    status={problem.verification?.status}
-                    iconOnly
-                  />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs">
-                <p className="font-medium">
-                  {verificationLabel(problem.verification?.status)}
-                </p>
-                <p className="whitespace-pre-wrap">
-                  {verificationDetail(problem)}
-                </p>
-                {needsIntervention(problem.verification?.status) && (
-                  <p className="mt-1 text-muted-foreground">
-                    Tip: regenerate the expected output from the solution in the
-                    editor.
+            {problem.uid === verifyingUid ? (
+              <span
+                className="flex shrink-0 items-center px-2"
+                title="Verifying on Judge0…"
+              >
+                <Loader2 className="size-3.5 animate-spin text-primary" />
+              </span>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex shrink-0 items-center">
+                    <VerificationBadge
+                      status={problem.verification?.status}
+                      iconOnly
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs">
+                  <p className="font-medium">
+                    {verificationLabel(problem.verification?.status)}
                   </p>
-                )}
-              </TooltipContent>
-            </Tooltip>
+                  <p className="whitespace-pre-wrap">
+                    {verificationDetail(problem)}
+                  </p>
+                  {needsIntervention(problem.verification?.status) && (
+                    <p className="mt-1 text-muted-foreground">
+                      Tip: regenerate the expected output from the solution in the
+                      editor.
+                    </p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {/* Edit button */}
             <Button

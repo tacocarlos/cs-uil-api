@@ -6,6 +6,8 @@ import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
 import { fetchTextContent } from "@/lib/fetch-text";
 import { verifyAll, verifySolution } from "@/server/judge0/verify";
+import type { TextRef } from "@/lib/text-ref";
+import { resolveTextRef } from "@/lib/text-ref-server";
 import type { VerificationOutcome } from "@/server/judge0/types";
 
 // ---------------------------------------------------------------------------
@@ -205,17 +207,31 @@ export async function verifyCompetitionProblems(
  */
 export async function verifyDraftProblem(input: {
   solution: string;
-  studentData: string;
-  studentOutput: string;
-  testData: string;
-  testOutput: string;
+  /** Large fields arrive as uploaded URLs — see `TextRef`. */
+  studentData: TextRef;
+  studentOutput: TextRef;
+  testData: TextRef;
+  testOutput: TextRef;
   /** Used to synthesise the conventional `<problemname>.dat` input file. */
   problemName?: string;
   /** Problem 1 takes no input, so empty input data is allowed for it. */
   problemNumber?: number;
 }): Promise<VerifyProblemResult> {
   try {
-    const outcome = await verifySolution(input);
+    const [studentData, studentOutput, testData, testOutput] =
+      await Promise.all([
+        resolveTextRef(input.studentData),
+        resolveTextRef(input.studentOutput),
+        resolveTextRef(input.testData),
+        resolveTextRef(input.testOutput),
+      ]);
+    const outcome = await verifySolution({
+      ...input,
+      studentData,
+      studentOutput,
+      testData,
+      testOutput,
+    });
     return { success: true, outcome };
   } catch (e) {
     return {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useTransition } from "react";
+import { useState, useMemo, useCallback, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
@@ -41,6 +41,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,14 +59,19 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProblemsToolbar } from "@/components/admin/problems-toolbar";
-import { ProblemStatusBadge } from "@/components/admin/problem-status-badge";
+import { ProblemEnabledToggle } from "@/components/admin/problem-enabled-toggle";
 import { ProblemRowActions } from "@/components/admin/problem-row-actions";
 import {
   VerificationBadge,
   needsIntervention,
 } from "@/components/admin/verification-badge";
-import { regenerateOutputsForProblems } from "@/server/actions/outputs";
-import { verifyProblems } from "@/server/actions/verification";
+import { previewOutputsForProblems } from "@/server/actions/outputs";
+import type { OutputOverwriteProposal } from "@/server/actions/outputs";
+import {
+  OutputReviewDialog,
+  type OutputReviewSummary,
+} from "@/components/admin/output-review-dialog";
+import { verifyProblemById } from "@/server/actions/verification";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -398,40 +404,57 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
     if (!confirmed) return;
 
     startVerifyingAll(async () => {
-      const result = await verifyProblems();
+      // One problem per request so the toast can report progress between
+      // them. Server actions run sequentially anyway.
+      const targets = [...problems].sort(
+        (a, b) => a.number - b.number || a.id - b.id,
+      );
+      const total = targets.length;
+      const toastId = toast.loading(`[0/${total}] Starting verification…`);
 
-      if (!result.success) {
-        toast.error(result.error);
-        return;
+      const summary: Record<VerificationStatus, number> = {
+        unverified: 0,
+        passed: 0,
+        failed: 0,
+        error: 0,
+        skipped: 0,
+      };
+      let requestErrors = 0;
+
+      for (const [i, target] of targets.entries()) {
+        toast.loading(`[${i + 1}/${total}] Verifying ${target.name}`, {
+          id: toastId,
+        });
+
+        const result = await verifyProblemById(target.id);
+        if (result.success) {
+          summary[result.outcome.status] += 1;
+        } else {
+          requestErrors += 1;
+        }
       }
 
-      const { summary } = result;
-      const checked =
-        summary.passed +
-        summary.failed +
-        summary.error +
-        summary.skipped +
-        summary.unverified;
-
+      const errors = summary.error + requestErrors;
       const parts: string[] = [];
       if (summary.passed > 0) parts.push(`${summary.passed} passed`);
       if (summary.failed > 0) parts.push(`${summary.failed} mismatched`);
-      if (summary.error > 0) parts.push(`${summary.error} error`);
+      if (errors > 0) parts.push(`${errors} error`);
       if (summary.skipped > 0) parts.push(`${summary.skipped} skipped`);
 
-      const message = `${checked} checked${
+      const message = `${total} checked${
         parts.length > 0 ? ` — ${parts.join(", ")}` : ""
       }`;
 
-      if (summary.failed > 0 || summary.error > 0) {
-        toast.error(message);
+      // Replace the progress toast in place with the result.
+      if (summary.failed > 0 || errors > 0) {
+        toast.error(message, { id: toastId });
       } else {
-        toast.success(message);
+        toast.success(message, { id: toastId });
       }
 
       router.refresh();
     });
-  }, [router]);
+  }, [problems, router]);
 
   // ── Bulk output regeneration ───────────────────────────────────────────
   const [isRegeneratingAll, startRegeneratingAll] = useTransition();
@@ -443,29 +466,92 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
 
   const isBusy = isVerifyingAll || isRegeneratingAll;
 
+  /** Non-null while the per-output accept/deny review is open. */
+  const [reviewProposals, setReviewProposals] = useState<
+    OutputOverwriteProposal[] | null
+  >(null);
+  /** Bumped per batch so the review dialog mounts with fresh state. */
+  const [reviewBatch, setReviewBatch] = useState(0);
+
+  /** Which problem the preview is on, while generating. */
+  const [regenProgress, setRegenProgress] = useState<{
+    name: string;
+    count: number;
+    total: number;
+  } | null>(null);
+  /** Set by "Stop" — the loop finishes the current problem, then reviews. */
+  const stopRequested = useRef(false);
+  const [isStopping, setIsStopping] = useState(false);
+
   const handleRegenerateConfirm = useCallback(() => {
     const kinds = pendingKinds;
     if (!kinds) return;
 
-    startRegeneratingAll(async () => {
-      const result = await regenerateOutputsForProblems(undefined, kinds);
+    stopRequested.current = false;
+    setIsStopping(false);
 
-      if (!result.success) {
-        toast.error(result.error);
+    startRegeneratingAll(async () => {
+      // One problem per request so progress can be reported between them.
+      // Server actions run sequentially anyway, so this costs no parallelism.
+      const targets = [...problems].sort(
+        (a, b) => a.number - b.number || a.id - b.id,
+      );
+      const proposals: OutputOverwriteProposal[] = [];
+      let failed = 0;
+      let stopped = false;
+
+      for (const [i, target] of targets.entries()) {
+        if (stopRequested.current) {
+          stopped = true;
+          break;
+        }
+        setRegenProgress({
+          name: target.name,
+          count: i + 1,
+          total: targets.length,
+        });
+
+        const result = await previewOutputsForProblems([target.id], kinds);
+        if (!result.success) {
+          failed++;
+          continue;
+        }
+        proposals.push(...result.proposals);
+        failed += result.summary.failed;
+      }
+
+      setRegenProgress(null);
+      setPendingKinds(null);
+
+      if (failed > 0) {
+        toast.error(
+          `${failed} ${failed === 1 ? "problem" : "problems"} failed to generate output`,
+        );
+      }
+      if (stopped) {
+        toast.info("Stopped early — reviewing the outputs generated so far.");
+      }
+
+      if (proposals.length === 0) {
+        toast.success("No outputs changed — nothing to review.");
         return;
       }
 
-      const { entries, summary } = result;
+      setReviewBatch((n) => n + 1);
+      setReviewProposals(proposals);
+    });
+  }, [pendingKinds, problems]);
+
+  const handleReviewFinished = useCallback(
+    (summary: OutputReviewSummary) => {
+      setReviewProposals(null);
 
       const parts: string[] = [];
-      if (summary.applied > 0) parts.push(`${summary.applied} updated`);
-      if (summary.unchanged > 0) parts.push(`${summary.unchanged} unchanged`);
+      if (summary.accepted > 0) parts.push(`${summary.accepted} overwritten`);
+      if (summary.denied > 0) parts.push(`${summary.denied} denied`);
+      if (summary.skipped > 0) parts.push(`${summary.skipped} skipped`);
       if (summary.failed > 0) parts.push(`${summary.failed} failed`);
-
-      const total = entries.length;
-      const message = `${total} ${total === 1 ? "problem" : "problems"}${
-        parts.length > 0 ? ` — ${parts.join(", ")}` : ""
-      }`;
+      const message = parts.join(", ");
 
       if (summary.failed > 0) {
         toast.error(message);
@@ -473,9 +559,10 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
         toast.success(message);
       }
 
-      router.refresh();
-    });
-  }, [pendingKinds, router]);
+      if (summary.accepted > 0) router.refresh();
+    },
+    [router],
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -542,7 +629,8 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
       <AlertDialog
         open={pendingKinds !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingKinds(null);
+          // Closing mid-run would hide the progress; use "Stop" instead.
+          if (!open && !isRegeneratingAll) setPendingKinds(null);
         }}
       >
         <AlertDialogContent>
@@ -562,42 +650,84 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <ul className="-mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
-            <li>
-              For every problem whose produced output differs, the{" "}
-              <strong className="text-foreground">
-                stored expected output is overwritten
-              </strong>
-              . This cannot be undone. Problems whose solution fails to compile
-              keep what they have.
-            </li>
-            <li>
-              The expected output then comes from the solution itself, so
-              verification can no longer independently disagree with it — each
-              affected problem is reset to{" "}
-              <strong className="text-foreground">unverified</strong>.
-            </li>
-            <li>
-              This targets{" "}
-              <strong className="text-foreground">all problems</strong>, not
-              just the rows matching your current filters.
-            </li>
-          </ul>
+          {regenProgress ? (
+            <div className="flex flex-col gap-2">
+              <p className="truncate text-sm text-muted-foreground">
+                Processing{" "}
+                <strong className="text-foreground">{regenProgress.name}</strong>{" "}
+                [{regenProgress.count}/{regenProgress.total}]
+              </p>
+              <Progress
+                value={
+                  ((regenProgress.count - 1) / regenProgress.total) * 100
+                }
+              />
+            </div>
+          ) : (
+            <ul className="-mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+              <li>
+                Nothing is written yet. Each output that differs from what is
+                stored is then shown to you one at a time to{" "}
+                <strong className="text-foreground">accept or deny</strong>.
+              </li>
+              <li>
+                An accepted output comes from the solution itself, so
+                verification can no longer independently disagree with it — that
+                problem is reset to{" "}
+                <strong className="text-foreground">unverified</strong>.
+                Accepted overwrites cannot be undone.
+              </li>
+              <li>
+                This targets{" "}
+                <strong className="text-foreground">all problems</strong>, not
+                just the rows matching your current filters.
+              </li>
+            </ul>
+          )}
 
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isRegeneratingAll}>
-              Cancel
-            </AlertDialogCancel>
+            {isRegeneratingAll ? (
+              <Button
+                variant="outline"
+                disabled={isStopping}
+                onClick={() => {
+                  stopRequested.current = true;
+                  setIsStopping(true);
+                }}
+              >
+                {isStopping ? "Stopping…" : "Stop"}
+              </Button>
+            ) : (
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+            )}
             <AlertDialogAction
-              variant="destructive"
               disabled={isRegeneratingAll}
-              onClick={handleRegenerateConfirm}
+              onClick={(e) => {
+                // Keep the dialog open (with its spinner) while generating.
+                e.preventDefault();
+                handleRegenerateConfirm();
+              }}
             >
-              {isRegeneratingAll ? "Regenerating…" : "Yes, overwrite"}
+              {isRegeneratingAll ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                "Generate & review"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {reviewProposals ? (
+        <OutputReviewDialog
+          key={reviewBatch}
+          proposals={reviewProposals}
+          onFinished={handleReviewFinished}
+        />
+      ) : null}
 
       <CardContent className="flex flex-col gap-4">
         {/* Toolbar */}
@@ -739,7 +869,11 @@ export function ProblemsTable({ problems }: ProblemsTableProps) {
 
                     {/* Status */}
                     <TableCell>
-                      <ProblemStatusBadge enabled={problem.enabled} />
+                      <ProblemEnabledToggle
+                        problemId={problem.id}
+                        name={problem.name}
+                        enabled={problem.enabled}
+                      />
                     </TableCell>
 
                     {/* Verified */}

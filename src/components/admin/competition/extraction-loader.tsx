@@ -14,7 +14,13 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import type { ExtractionResult } from "@/server/extraction/types";
+import type {
+  ExtractionEvent,
+  ExtractionProblemProgress,
+  ExtractionResult,
+  ExtractionStepId,
+  ExtractionStepStatus,
+} from "@/server/extraction/types";
 
 import { CompetitionEditor } from "./competition-editor";
 
@@ -28,9 +34,11 @@ interface ExtractionLoaderProps {
 }
 
 type SseEvent =
-  | { type: "progress"; message: string; percent: number }
+  | ExtractionEvent
   | { type: "complete"; result: ExtractionResult }
   | { type: "error"; message: string };
+
+type StepState = { status: ExtractionStepStatus; detail?: string };
 
 type Stage =
   | { status: "connecting" }
@@ -42,12 +50,17 @@ type Stage =
 // Constants
 // ---------------------------------------------------------------------------
 
-const STEPS = [
-  { id: "download", label: "Download files",       doneAt: 29 },
-  { id: "ai",       label: "AI analyses PDF",       doneAt: 75 },
-  { id: "images",   label: "Upload images",         doneAt: 88 },
-  { id: "assemble", label: "Assemble competition",  doneAt: 96 },
-] as const;
+/**
+ * Displayed in pipeline order. The ZIP/image steps run alongside the PDF
+ * steps, so more than one can be active at once.
+ */
+const STEPS: ReadonlyArray<{ id: ExtractionStepId; label: string }> = [
+  { id: "zip", label: "Read data ZIP" },
+  { id: "images", label: "Upload images" },
+  { id: "scan", label: "Find problems in PDF" },
+  { id: "extract", label: "Extract problem text" },
+  { id: "assemble", label: "Assemble competition" },
+];
 
 // ---------------------------------------------------------------------------
 // ExtractionLoader
@@ -59,6 +72,8 @@ export function ExtractionLoader({
 }: ExtractionLoaderProps): React.JSX.Element {
   const [stage, setStage] = useState<Stage>({ status: "connecting" });
   const [elapsed, setElapsed] = useState(0);
+  const [steps, setSteps] = useState<Partial<Record<ExtractionStepId, StepState>>>({});
+  const [pdfProblems, setPdfProblems] = useState<ExtractionProblemProgress[]>([]);
 
   // ── SSE connection ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -69,6 +84,13 @@ export function ExtractionLoader({
       const event = JSON.parse(e.data) as SseEvent;
       if (event.type === "progress") {
         setStage({ status: "extracting", message: event.message, percent: event.percent });
+      } else if (event.type === "step") {
+        setSteps((prev) => ({
+          ...prev,
+          [event.id]: { status: event.status, detail: event.detail },
+        }));
+      } else if (event.type === "problems") {
+        setPdfProblems(event.problems);
       } else if (event.type === "complete") {
         setStage({ status: "done", result: event.result });
         source.close();
@@ -169,28 +191,61 @@ export function ExtractionLoader({
 
           {/* Step list */}
           <div className="space-y-2">
-            {STEPS.map((step, i) => {
-              const isDone = currentPercent > step.doneAt;
-              const isActive =
-                !isDone && STEPS.slice(0, i).every((s) => currentPercent > s.doneAt);
+            {STEPS.map((step) => {
+              const state = steps[step.id];
+              const isDone = state?.status === "done";
+              const isActive = state?.status === "active";
               return (
-                <div
-                  key={step.id}
-                  className={cn(
-                    "flex items-center gap-2.5 text-sm",
-                    isDone && "text-foreground",
-                    isActive && "text-foreground font-medium",
-                    !isDone && !isActive && "text-muted-foreground/40",
-                  )}
-                >
-                  {isDone ? (
-                    <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
-                  ) : isActive ? (
-                    <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
-                  ) : (
-                    <Circle className="size-4 shrink-0" />
-                  )}
-                  {step.label}
+                <div key={step.id} className="space-y-2">
+                  <div
+                    className={cn(
+                      "flex items-center gap-2.5 text-sm",
+                      isDone && "text-foreground",
+                      isActive && "text-foreground font-medium",
+                      !isDone && !isActive && "text-muted-foreground/40",
+                    )}
+                  >
+                    <StepIcon status={state?.status} />
+                    <span className="flex-1">{step.label}</span>
+                    {state?.detail ? (
+                      <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                        {state.detail}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Per-problem checklist under the extraction step */}
+                  {step.id === "extract" && pdfProblems.length > 0 ? (
+                    <ul className="ml-6.5 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+                      {pdfProblems.map((p) => (
+                        <li
+                          key={p.number}
+                          className={cn(
+                            "flex min-w-0 items-center gap-2 text-xs",
+                            p.status === "pending"
+                              ? "text-muted-foreground/50"
+                              : "text-muted-foreground",
+                            p.status === "writing" && "text-foreground",
+                          )}
+                        >
+                          <StepIcon
+                            status={
+                              p.status === "done"
+                                ? "done"
+                                : p.status === "writing"
+                                  ? "active"
+                                  : undefined
+                            }
+                            small
+                          />
+                          <span className="w-5 shrink-0 text-right font-mono tabular-nums">
+                            {p.number}
+                          </span>
+                          <span className="truncate">{p.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               );
             })}
@@ -200,9 +255,31 @@ export function ExtractionLoader({
           <p className="text-xs text-muted-foreground border-t border-border/60 pt-4">
             Claude is reading the student packet and extracting each problem as structured
             markdown. This typically takes 30–90 seconds depending on packet length.
+            Solutions are checked on Judge0 once the review screen opens.
           </p>
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function StepIcon({
+  status,
+  small = false,
+}: {
+  status: ExtractionStepStatus | undefined;
+  small?: boolean;
+}): React.JSX.Element {
+  const size = small ? "size-3" : "size-4";
+  if (status === "done") {
+    return (
+      <CheckCircle2
+        className={cn(size, "shrink-0 text-emerald-600 dark:text-emerald-500")}
+      />
+    );
+  }
+  if (status === "active") {
+    return <Loader2 className={cn(size, "shrink-0 animate-spin text-primary")} />;
+  }
+  return <Circle className={cn(size, "shrink-0")} />;
 }

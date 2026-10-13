@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
 import { deleteUploadThingFiles } from "@/lib/upload-text";
 import { fetchTextContent } from "@/lib/fetch-text";
+import type { TextRef } from "@/lib/text-ref";
 import { uploadTextFile } from "@/lib/upload-text";
 
 /**
@@ -154,15 +155,19 @@ export type ProblemDetail = NonNullable<
   Awaited<ReturnType<typeof getProblemById>>
 >;
 
-/** Fields accepted by {@link updateProblem}. */
+/**
+ * Fields accepted by {@link updateProblem}. Text fields are {@link TextRef}s:
+ * judge data can exceed the server-action body limit, so large or unchanged
+ * fields arrive as UploadThing URLs rather than inline text.
+ */
 export interface UpdateProblemData {
   name: string;
   number: number;
-  markdown: string;
-  studentData: string;
-  studentOutput: string;
-  testData: string;
-  testOutput: string;
+  markdown: TextRef;
+  studentData: TextRef;
+  studentOutput: TextRef;
+  testData: TextRef;
+  testOutput: TextRef;
   solution: string;
   enabled: boolean;
 }
@@ -176,8 +181,15 @@ export async function updateProblem(
   data: UpdateProblemData,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    // Upload each field as a separate text file. uploadTextFile returns null
-    // for empty content, which the DB stores as null (column is nullable).
+    // A URL ref is already stored (unchanged field) or was uploaded by the
+    // browser, so it is used as-is. Inline text is uploaded here;
+    // uploadTextFile returns null for empty content, which the DB stores as
+    // null (column is nullable).
+    const store = (ref: TextRef, filename: string) =>
+      "url" in ref
+        ? Promise.resolve(ref.url)
+        : uploadTextFile(ref.text, filename);
+
     const [
       problemTextUrl,
       studentDataUrl,
@@ -185,11 +197,11 @@ export async function updateProblem(
       testDataUrl,
       testOutputUrl,
     ] = await Promise.all([
-      uploadTextFile(data.markdown, `problem-${id}-markdown.md`),
-      uploadTextFile(data.studentData, `problem-${id}-student-data.txt`),
-      uploadTextFile(data.studentOutput, `problem-${id}-student-output.txt`),
-      uploadTextFile(data.testData, `problem-${id}-test-data.txt`),
-      uploadTextFile(data.testOutput, `problem-${id}-test-output.txt`),
+      store(data.markdown, `problem-${id}-markdown.md`),
+      store(data.studentData, `problem-${id}-student-data.txt`),
+      store(data.studentOutput, `problem-${id}-student-output.txt`),
+      store(data.testData, `problem-${id}-test-data.txt`),
+      store(data.testOutput, `problem-${id}-test-output.txt`),
     ]);
 
     await db

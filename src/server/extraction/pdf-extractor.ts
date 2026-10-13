@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   CHEAP_MODEL,
   LARGE_OUTPUT_MODEL,
-  generateObjectWithFallback,
+  streamObjectWithFallback,
 } from "@/server/ai/fallback";
 import type { PdfProblemExtraction } from "./types";
 
@@ -180,12 +180,24 @@ async function mapWithConcurrency<T, R>(
  * The bottleneck is output tokens, not input, so re-sending the full PDF each
  * time is correct and avoids any PDF-splitting dependency.
  *
- * `onProgress(message, done, total)` reports chunk completion for the loading
- * UI.
+ * Both passes stream, so `hooks` can report live progress: how many problems
+ * the scan has found so far, then which problem each chunk is writing and
+ * when each one is complete.
  */
+export interface PdfExtractionHooks {
+  /** The scan pass has listed `count` problems so far. */
+  onScanProgress?: (count: number) => void;
+  /** The scan pass finished; these are the problems that will be extracted. */
+  onScanned?: (problems: Array<{ number: number; name: string }>) => void;
+  /** A chunk has started writing this problem's content. */
+  onProblemWriting?: (number: number) => void;
+  /** This problem's content is complete. */
+  onProblemDone?: (number: number) => void;
+}
+
 export async function extractPdfProblems(
   pdfUrl: string,
-  onProgress: (message: string, done: number, total: number) => void = () => {},
+  hooks: PdfExtractionHooks = {},
 ): Promise<{
   problems: PdfProblemExtraction[];
   yearHint: number | null;
@@ -206,11 +218,19 @@ export async function extractPdfProblems(
   };
 
   // ── Pass 1: scan for the problem list + metadata ──────────────────────────
-  onProgress("Scanning packet for problems…", 0, 1);
-
-  const { object: scan, provider } = await generateObjectWithFallback({
+  let scanCount = 0;
+  const { object: scan, provider } = await streamObjectWithFallback({
     model: CHEAP_MODEL,
     schema: pdfScanSchema,
+    onPartial: (partial) => {
+      // The last listed entry may still be mid-stream; count only those
+      // followed by another entry.
+      const count = Math.max(0, (partial.problems?.length ?? 0) - 1);
+      if (count > scanCount) {
+        scanCount = count;
+        hooks.onScanProgress?.(count);
+      }
+    },
     system: SCAN_SYSTEM_PROMPT,
     messages: [
       {
@@ -231,6 +251,7 @@ export async function extractPdfProblems(
   }
 
   const found = scan.problems;
+  hooks.onScanned?.(found.map((p) => ({ number: p.number, name: p.name })));
   if (found.length === 0) {
     return {
       problems: [],
@@ -241,24 +262,34 @@ export async function extractPdfProblems(
 
   // ── Pass 2: extract each chunk of problems fully, in parallel ─────────────
   const chunks = chunk(found, CHUNK_SIZE);
-  const total = chunks.length;
-  let completed = 0;
-
-  onProgress(`Extracting ${total} chunk${total === 1 ? "" : "s"}…`, 0, total);
 
   const chunkResults = await mapWithConcurrency(
     chunks,
     CHUNK_CONCURRENCY,
     async (group) => {
       const numbers = group.map((p) => p.number);
-      const label =
-        numbers.length === 1
-          ? `problem ${numbers[0]}`
-          : `problems ${numbers[0]}–${numbers[numbers.length - 1]}`;
 
-      const { object: chunkResult } = await generateObjectWithFallback({
+      // A problem is complete once the model has moved on to the next one.
+      // Report each transition once, however many partials arrive.
+      let writingIndex = -1;
+      const advanceTo = (index: number) => {
+        while (writingIndex < index) {
+          const finished = numbers[writingIndex];
+          if (finished !== undefined) hooks.onProblemDone?.(finished);
+          writingIndex += 1;
+          const next = numbers[writingIndex];
+          if (next !== undefined) hooks.onProblemWriting?.(next);
+        }
+      };
+      advanceTo(0);
+
+      const { object: chunkResult } = await streamObjectWithFallback({
         model: LARGE_OUTPUT_MODEL,
         schema: pdfChunkSchema,
+        onPartial: (partial) => {
+          const length = partial.problems?.length ?? 0;
+          if (length > 0) advanceTo(Math.min(length - 1, numbers.length - 1));
+        },
         system: EXTRACTION_SYSTEM_PROMPT,
         messages: [
           {
@@ -277,8 +308,8 @@ export async function extractPdfProblems(
         ],
       });
 
-      completed += 1;
-      onProgress(`Extracted ${label} (${completed}/${total})`, completed, total);
+      // The final problem (and any the model skipped) completes with the call.
+      advanceTo(numbers.length);
 
       return chunkResult.problems;
     },

@@ -24,18 +24,20 @@ import { toast } from "sonner";
 
 import {
   applyProblemOutputs,
+  discardGeneratedOutputs,
   generateProblemOutputs,
+  type GenerateOutputsPreviewResult as GenerateOutputsResult,
 } from "@/server/actions/outputs";
 import {
   deleteProblem,
   updateProblem,
   type ProblemDetail,
+  type UpdateProblemData,
 } from "@/server/actions/problems";
 import { verifyProblemById } from "@/server/actions/verification";
-import type {
-  GeneratedOutputKind,
-  GenerateOutputsResult,
-} from "@/server/judge0/generate";
+import type { GeneratedOutputKind } from "@/server/judge0/generate";
+import type { TextRef } from "@/lib/text-ref";
+import { readTextRef, toTextRef } from "@/lib/text-ref-client";
 import type { VerificationOutcome } from "@/server/judge0/types";
 import { parseCompileErrorLine } from "@/server/judge0/language";
 import { CodeEditor } from "@/components/admin/code-editor";
@@ -172,7 +174,39 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
 
   function handleSave() {
     startTransition(async () => {
-      const result = await updateProblem(problem.id, draft);
+      // Unchanged fields keep their stored file; changed ones go inline when
+      // small and are uploaded from the browser when large, so the request
+      // never carries multi-MB judge data.
+      const ref = (
+        value: string,
+        original: string | null | undefined,
+        url: string | null,
+        name: string,
+      ): Promise<TextRef> =>
+        value === (original ?? "") && url
+          ? Promise.resolve({ url })
+          : toTextRef(value, `problem-${problem.id}-${name}`);
+
+      let fields: Pick<
+        UpdateProblemData,
+        "markdown" | "studentData" | "studentOutput" | "testData" | "testOutput"
+      >;
+      try {
+        const [markdown, studentData, studentOutput, testData, testOutput] =
+          await Promise.all([
+            ref(draft.markdown, problem.markdown, problem.problemTextUrl, "markdown.md"),
+            ref(draft.studentData, problem.studentData, problem.studentDataUrl, "student-data.txt"),
+            ref(draft.studentOutput, problem.studentOutput, problem.studentOutputUrl, "student-output.txt"),
+            ref(draft.testData, problem.testData, problem.testDataUrl, "test-data.txt"),
+            ref(draft.testOutput, problem.testOutput, problem.testOutputUrl, "test-output.txt"),
+          ]);
+        fields = { markdown, studentData, studentOutput, testData, testOutput };
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Upload failed.");
+        return;
+      }
+
+      const result = await updateProblem(problem.id, { ...draft, ...fields });
       if (result.success) {
         toast.success("Problem saved successfully.");
         router.refresh();
@@ -227,6 +261,12 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
         return;
       }
 
+      // The previous preview was never applied; drop its uploaded files.
+      void discardGeneratedOutputs(
+        (generated?.outputs ?? []).flatMap((o) =>
+          o.outputRef ? [o.outputRef] : [],
+        ),
+      );
       setGenerated(result.result);
       setSelection(defaultSelection(result.result));
 
@@ -251,11 +291,15 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
   }
 
   function handleApply() {
-    const payload: { student?: string; test?: string } = {};
+    const payload: { student?: TextRef; test?: TextRef } = {};
+    const unused: TextRef[] = [];
     for (const output of generated?.outputs ?? []) {
-      if (output.status !== "ok" || output.output === undefined) continue;
-      if (!selection[output.kind]) continue;
-      payload[output.kind] = output.output;
+      if (output.status !== "ok" || output.outputRef === undefined) continue;
+      if (!selection[output.kind]) {
+        unused.push(output.outputRef);
+        continue;
+      }
+      payload[output.kind] = output.outputRef;
     }
 
     if (payload.student === undefined && payload.test === undefined) return;
@@ -267,14 +311,18 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
         toast.error(result.error);
         return;
       }
+      void discardGeneratedOutputs(unused);
 
       // Keep the editor in sync so a later save does not revert the overwrite.
+      // The full text is fetched from the stored file; previews are cut short.
+      const [studentOutput, testOutput] = await Promise.all([
+        payload.student ? readTextRef(payload.student) : undefined,
+        payload.test ? readTextRef(payload.test) : undefined,
+      ]);
       setDraft((prev) => ({
         ...prev,
-        ...(payload.student !== undefined
-          ? { studentOutput: payload.student }
-          : {}),
-        ...(payload.test !== undefined ? { testOutput: payload.test } : {}),
+        ...(studentOutput !== undefined ? { studentOutput } : {}),
+        ...(testOutput !== undefined ? { testOutput } : {}),
       }));
 
       setGenerated(null);

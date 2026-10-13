@@ -2,86 +2,98 @@ import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
 
 export const env = createEnv({
-  /**
-   * Specify your server-side environment variables schema here. This way you can ensure the app
-   * isn't built with invalid env vars.
-   */
-  server: {
-    BETTER_AUTH_SECRET:
-      process.env.NODE_ENV === "production"
-        ? z.string()
-        : z.string().optional(),
-    BETTER_AUTH_URL:
-      process.env.NODE_ENV === "production"
-        ? z.string()
-        : z.string().optional(),
-    // BETTER_AUTH_GITHUB_CLIENT_ID: z.string(),
-    // BETTER_AUTH_GITHUB_CLIENT_SECRET: z.string(),
-    GOOGLE_ID: z.string(),
-    GOOGLE_SECRET: z.string(),
-    TURSO_CONNECTION_URL: z.string(),
-    TURSO_AUTH_TOKEN: z.string(),
-    UPLOADTHING_TOKEN: z.string(),
-    /**
-     * OpenRouter key. LLM calls that fail because the Anthropic account is out
-     * of credits are retried through OpenRouter.
-     */
-    OPEN_ROUTER_API_KEY: z.string(),
-    ANTHROPIC_API_KEY: z.string(),
-    /**
-     * Base URL of the Judge0 instance used to verify reference solutions.
-     * Note: judge0.lunaghs.dev serves over plain HTTP (port 443 is closed),
-     * so the default is http://, not https://.
-     */
-    JUDGE0_URL: z.string().url().default("http://judge0.lunaghs.dev"),
-    /** Optional auth token, sent as X-Auth-Token when the instance requires it. */
-    JUDGE0_TOKEN: z.string().optional(),
-    NODE_ENV: z
-      .enum(["development", "test", "production"])
-      .default("development"),
-  },
+	/**
+	 * Specify your server-side environment variables schema here. This way you can ensure the app
+	 * isn't built with invalid env vars.
+	 */
+	server: {
+		BETTER_AUTH_SECRET:
+			process.env.NODE_ENV === "production"
+				? z.string()
+				: z.string().optional(),
+		BETTER_AUTH_URL:
+			process.env.NODE_ENV === "production"
+				? z.string()
+				: z.string().optional(),
+		// BETTER_AUTH_GITHUB_CLIENT_ID: z.string(),
+		// BETTER_AUTH_GITHUB_CLIENT_SECRET: z.string(),
+		GOOGLE_ID: z.string(),
+		GOOGLE_SECRET: z.string(),
+		TURSO_CONNECTION_URL: z.string(),
+		TURSO_AUTH_TOKEN: z.string(),
+		UPLOADTHING_TOKEN: z.string(),
+		/**
+		 * OpenRouter key. LLM calls that fail because the Anthropic account is out
+		 * of credits are retried through OpenRouter.
+		 */
+		OPEN_ROUTER_API_KEY: z.string(),
+		ANTHROPIC_API_KEY: z.string(),
+		/**
+		 * Base URL of the Judge0 instance used to verify reference solutions.
+		 * Note: judge0.lunaghs.dev serves over plain HTTP (port 443 is closed),
+		 * so the default is http://, not https://.
+		 */
+		JUDGE0_URL: z.string().url().default("http://178.156.196.56:2358/"),
+		/** Optional auth token, sent as X-Auth-Token when the instance requires it. */
+		JUDGE0_TOKEN: z.string().optional(),
+		/**
+		 * Per-submission Judge0 limits. Unset means "use the instance default".
+		 * Each must be within the instance's MAX_* setting in judge0.conf, or
+		 * Judge0 rejects the submission. Large judge outputs need a raised
+		 * JUDGE0_MAX_FILE_SIZE_KB: stdout counts toward it (default 1024 KB).
+		 */
+		JUDGE0_MAX_FILE_SIZE_KB: z.coerce.number().int().positive().optional(),
+		JUDGE0_MEMORY_LIMIT_KB: z.coerce.number().int().positive().optional(),
+		JUDGE0_WALL_TIME_LIMIT: z.coerce.number().positive().optional(),
+		NODE_ENV: z
+			.enum(["development", "test", "production"])
+			.default("development"),
+	},
 
-  /**
-   * Specify your client-side environment variables schema here. This way you can ensure the app
-   * isn't built with invalid env vars. To expose them to the client, prefix them with
-   * `NEXT_PUBLIC_`.
-   */
-  client: {
-    NEXT_PUBLIC_NODE_ENV: z
-      .enum(["development", "test", "production"])
-      .default("development"),
-  },
+	/**
+	 * Specify your client-side environment variables schema here. This way you can ensure the app
+	 * isn't built with invalid env vars. To expose them to the client, prefix them with
+	 * `NEXT_PUBLIC_`.
+	 */
+	client: {
+		NEXT_PUBLIC_NODE_ENV: z
+			.enum(["development", "test", "production"])
+			.default("development"),
+	},
 
-  /**
-   * You can't destruct `process.env` as a regular object in the Next.js edge runtimes (e.g.
-   * middlewares) or client-side so we need to destruct manually.
-   */
-  runtimeEnv: {
-    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    // BETTER_AUTH_GITHUB_CLIENT_ID: process.env.BETTER_AUTH_GITHUB_CLIENT_ID,
-    // BETTER_AUTH_GITHUB_CLIENT_SECRET:
-    // 	process.env.BETTER_AUTH_GITHUB_CLIENT_SECRET,
-    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
-    GOOGLE_ID: process.env.GOOGLE_CLIENT_ID,
-    GOOGLE_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-    TURSO_CONNECTION_URL: process.env.TURSO_CONNECTION_URL,
-    TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
-    NODE_ENV: process.env.NODE_ENV,
-    UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    JUDGE0_URL: process.env.JUDGE0_URL,
-    JUDGE0_TOKEN: process.env.JUDGE0_TOKEN,
-    OPEN_ROUTER_API_KEY: process.env.OPEN_ROUTER_API_KEY,
-    NEXT_PUBLIC_NODE_ENV: process.env.NODE_ENV,
-  },
-  /**
-   * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
-   * useful for Docker builds.
-   */
-  skipValidation: !!process.env.SKIP_ENV_VALIDATION,
-  /**
-   * Makes it so that empty strings are treated as undefined. `SOME_VAR: z.string()` and
-   * `SOME_VAR=''` will throw an error.
-   */
-  emptyStringAsUndefined: true,
+	/**
+	 * You can't destruct `process.env` as a regular object in the Next.js edge runtimes (e.g.
+	 * middlewares) or client-side so we need to destruct manually.
+	 */
+	runtimeEnv: {
+		BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+		// BETTER_AUTH_GITHUB_CLIENT_ID: process.env.BETTER_AUTH_GITHUB_CLIENT_ID,
+		// BETTER_AUTH_GITHUB_CLIENT_SECRET:
+		// 	process.env.BETTER_AUTH_GITHUB_CLIENT_SECRET,
+		BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+		GOOGLE_ID: process.env.GOOGLE_CLIENT_ID,
+		GOOGLE_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+		TURSO_CONNECTION_URL: process.env.TURSO_CONNECTION_URL,
+		TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
+		NODE_ENV: process.env.NODE_ENV,
+		UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
+		ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+		JUDGE0_URL: process.env.JUDGE0_URL,
+		JUDGE0_TOKEN: process.env.JUDGE0_TOKEN,
+		JUDGE0_MAX_FILE_SIZE_KB: process.env.JUDGE0_MAX_FILE_SIZE_KB,
+		JUDGE0_MEMORY_LIMIT_KB: process.env.JUDGE0_MEMORY_LIMIT_KB,
+		JUDGE0_WALL_TIME_LIMIT: process.env.JUDGE0_WALL_TIME_LIMIT,
+		OPEN_ROUTER_API_KEY: process.env.OPEN_ROUTER_API_KEY,
+		NEXT_PUBLIC_NODE_ENV: process.env.NODE_ENV,
+	},
+	/**
+	 * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
+	 * useful for Docker builds.
+	 */
+	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+	/**
+	 * Makes it so that empty strings are treated as undefined. `SOME_VAR: z.string()` and
+	 * `SOME_VAR=''` will throw an error.
+	 */
+	emptyStringAsUndefined: true,
 });

@@ -4,6 +4,7 @@ import { Judge0Error, runSubmission } from "./client";
 import type { Judge0RunResult } from "./client";
 import { buildDataFiles, looksLikeMissingInputFile } from "./data-files";
 import { rewriteSolutionForStdin } from "./rewrite";
+import { JUDGE0_STATUS } from "./types";
 
 /**
  * Shared execution harness for a single problem's reference solution.
@@ -117,6 +118,11 @@ export function createSolutionRunner(
         !rewriteAttempted &&
         options.allowStdinRewrite !== false &&
         first.ok &&
+        // Judge0 sandbox failures (e.g. `rb_sysopen - /box/Main.java` when
+        // isolate cannot initialise) also mention missing files, but they are
+        // infrastructure errors that no source rewrite can fix.
+        first.run.statusId !== JUDGE0_STATUS.INTERNAL_ERROR &&
+        first.run.statusId !== JUDGE0_STATUS.EXEC_FORMAT_ERROR &&
         looksLikeMissingInputFile(
           first.run.stderr || first.run.message,
           first.run.stdout,

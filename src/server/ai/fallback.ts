@@ -1,7 +1,12 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { APICallError, generateObject, NoObjectGeneratedError } from "ai";
-import type { LanguageModel, ModelMessage } from "ai";
+import {
+  APICallError,
+  generateObject,
+  NoObjectGeneratedError,
+  streamObject,
+} from "ai";
+import type { DeepPartial, LanguageModel, ModelMessage } from "ai";
 import type { z } from "zod";
 
 import { env } from "@/env";
@@ -183,6 +188,88 @@ export async function generateObjectWithFallback<T extends z.ZodTypeAny>(
       const { object, finishReason } = await generateObject(
         build(openRouterModel(modelId)),
       );
+      return { object, provider: "openrouter", finishReason };
+    } catch (fallbackError) {
+      if (isOutputTruncation(fallbackError)) {
+        throw new OutputTruncatedError(OPENROUTER_MODEL);
+      }
+      throw fallbackError;
+    }
+  }
+}
+
+export interface StreamObjectOptions<T extends z.ZodTypeAny>
+  extends GenerateObjectOptions<T> {
+  /** Called with each partial object as the model streams it. */
+  onPartial?: (partial: DeepPartial<z.infer<T>>) => void;
+}
+
+/**
+ * Streaming counterpart of {@link generateObjectWithFallback}: identical
+ * provider fallback and truncation handling, but reports partial objects as
+ * they arrive so long calls can drive live progress.
+ *
+ * If the Anthropic attempt fails over to OpenRouter after some partials were
+ * reported, the OpenRouter stream starts again from an empty object —
+ * `onPartial` consumers must tolerate progress resetting.
+ */
+export async function streamObjectWithFallback<T extends z.ZodTypeAny>(
+  options: StreamObjectOptions<T>,
+): Promise<{
+  object: z.infer<T>;
+  provider: "anthropic" | "openrouter";
+  finishReason: string;
+}> {
+  const modelId = options.model ?? CHEAP_MODEL;
+
+  const run = async (model: LanguageModel) => {
+    // Request failures (including credit exhaustion) arrive as stream error
+    // chunks routed to `onError`, not as a rejected `object` promise, so they
+    // are captured here and rethrown once the stream has closed.
+    let streamError: unknown;
+    const result = streamObject({
+      model,
+      schema: options.schema,
+      system: options.system,
+      messages: options.messages,
+      temperature: options.temperature,
+      maxOutputTokens: options.maxOutputTokens,
+      onError: ({ error }) => {
+        streamError ??= error;
+      },
+    });
+    // Avoid an unhandled rejection when we throw `streamError` instead.
+    result.object.catch(() => {});
+
+    for await (const partial of result.partialObjectStream) {
+      options.onPartial?.(partial as DeepPartial<z.infer<T>>);
+    }
+    if (streamError !== undefined) throw streamError;
+
+    const object = (await result.object) as z.infer<T>;
+    const finishReason = await result.finishReason;
+    return { object, finishReason };
+  };
+
+  try {
+    const { object, finishReason } = await run(anthropic(modelId));
+    return { object, provider: "anthropic", finishReason };
+  } catch (error) {
+    if (isOutputTruncation(error)) {
+      throw new OutputTruncatedError(modelId);
+    }
+
+    if (!isCreditExhaustion(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "[ai] Anthropic stream failed due to credit exhaustion; " +
+        `retrying via OpenRouter (${OPENROUTER_MODEL}).`,
+    );
+
+    try {
+      const { object, finishReason } = await run(openRouterModel(modelId));
       return { object, provider: "openrouter", finishReason };
     } catch (fallbackError) {
       if (isOutputTruncation(fallbackError)) {

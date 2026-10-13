@@ -1,3 +1,4 @@
+import { describeLimitKill } from "./client";
 import { createSolutionRunner } from "./runner";
 import type { RunnerOptions } from "./runner";
 import { JUDGE0_STATUS, runsWithoutInput } from "./types";
@@ -14,9 +15,6 @@ import { JUDGE0_STATUS, runsWithoutInput } from "./types";
  * Nothing here writes to the database — callers preview the produced output
  * and decide what, if anything, to overwrite.
  */
-
-/** Max characters of captured output retained per case. */
-const MAX_OUTPUT = 500_000;
 
 export type GeneratedOutputKind = "student" | "test";
 export type GeneratedOutputStatus = "ok" | "error" | "skipped";
@@ -174,14 +172,18 @@ export async function generateOutputs(
       outputs.push({
         kind: entry.kind,
         status: "error",
-        message: `Execution failed: ${run.statusDescription}`,
+        message: `Execution failed: ${run.statusDescription}${
+          describeLimitKill(run) ? ` — ${describeLimitKill(run)}` : ""
+        }`,
         existing: entry.existing,
         stderr: run.stderr || run.message,
       });
       continue;
     }
 
-    const produced = run.stdout.slice(0, MAX_OUTPUT);
+    // Never truncate: a cut-off capture saved as expected output would be
+    // silently wrong. Large outputs travel by URL, not inline.
+    const produced = run.stdout;
     outputs.push({
       kind: entry.kind,
       status: "ok",

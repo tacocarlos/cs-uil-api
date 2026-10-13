@@ -1,7 +1,13 @@
 "use client";
 
 import type React from "react";
-import { type ReactNode, useState, useTransition } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -21,9 +27,11 @@ import {
   saveProblem,
   type ProblemToSave,
 } from "@/server/actions/save";
+import { verifyDraftProblem } from "@/server/actions/verification";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import {
   Card,
   CardContent,
@@ -37,6 +45,8 @@ import { CompetitionDetailsForm } from "./competition-details-form";
 import { needsIntervention } from "@/components/admin/verification-badge";
 import { ProblemEditorSheet } from "./problem-editor-sheet";
 import { ProblemsReviewList } from "./problems-review-list";
+import { draftDataRefs } from "./draft-refs";
+import { cachedUploadUrl } from "@/lib/text-ref-client";
 import type { CompetitionFormState, EditableProblem } from "./types";
 import type { ExtractedProblem } from "@/server/extraction/types";
 
@@ -98,8 +108,13 @@ export function CompetitionEditor({
     dataZipUrl: dataUrl,
   });
 
-  const [problems, setProblems] = useState<EditableProblem[]>(
-    initialData.problems.map((p) => ({ ...p, isDirty: false, enabled: false })),
+  const [problems, setProblems] = useState<EditableProblem[]>(() =>
+    initialData.problems.map((p) => ({
+      ...p,
+      uid: crypto.randomUUID(),
+      isDirty: false,
+      enabled: false,
+    })),
   );
 
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -108,6 +123,93 @@ export function CompetitionEditor({
   const router = useRouter();
   const [isSaving, startSaving] = useTransition();
   const [saveProgress, setSaveProgress] = useState<string | null>(null);
+
+  // ── Background verification ───────────────────────────────────────────────
+  //
+  // Extraction no longer waits on Judge0, so each solution is checked here
+  // once the review screen is up, one at a time (server actions run
+  // sequentially anyway). Results land on the matching problem as they arrive.
+
+  /** Latest problems, readable from the async loop without re-running it. */
+  const problemsRef = useRef(problems);
+  problemsRef.current = problems;
+
+  /** Set when saving starts or the editor unmounts; ends the loop early. */
+  const stopVerifying = useRef(false);
+
+  const [verifyProgress, setVerifyProgress] = useState<{
+    uid: string;
+    name: string;
+    count: number;
+    total: number;
+  } | null>(null);
+
+  useEffect(() => {
+    // Per-run flag: Strict Mode mounts effects twice in dev, and a shared ref
+    // reset by the second run would let the first loop keep going too.
+    let cancelled = false;
+    const shouldStop = () => cancelled || stopVerifying.current;
+
+    const queue = problemsRef.current
+      .filter((p) => p.verification === undefined)
+      .map((p) => p.uid);
+
+    void (async () => {
+      for (const [i, uid] of queue.entries()) {
+        if (shouldStop()) break;
+
+        // Read the problem fresh: it may have been edited, verified by hand
+        // from the sheet, or removed since the queue was built.
+        const target = problemsRef.current.find((p) => p.uid === uid);
+        if (!target || target.verification !== undefined) continue;
+
+        setVerifyProgress({
+          uid,
+          name: target.name || `Problem ${target.number}`,
+          count: i + 1,
+          total: queue.length,
+        });
+
+        let refs: Awaited<ReturnType<typeof draftDataRefs>>;
+        try {
+          refs = await draftDataRefs(target);
+        } catch {
+          continue;
+        }
+        if (shouldStop()) break;
+
+        const result = await verifyDraftProblem({
+          solution: target.solution,
+          ...refs,
+          problemName: target.name,
+          problemNumber: target.number,
+        });
+        if (shouldStop()) break;
+        if (!result.success) continue;
+
+        setProblems((prev) =>
+          prev.map((p) =>
+            // Discard the result if the data it was computed from changed or
+            // the admin already ran their own check.
+            p.uid === uid &&
+            p.verification === undefined &&
+            p.solution === target.solution &&
+            p.studentData === target.studentData &&
+            p.studentOutput === target.studentOutput &&
+            p.testData === target.testData &&
+            p.testOutput === target.testOutput
+              ? { ...p, verification: result.outcome }
+              : p,
+          ),
+        );
+      }
+      if (!cancelled) setVerifyProgress(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -125,6 +227,11 @@ export function CompetitionEditor({
   }
 
   function handleSave(): void {
+    // Saving queues behind any in-flight server action; stop verifying so the
+    // save is not held up by the remaining Judge0 runs.
+    stopVerifying.current = true;
+    setVerifyProgress(null);
+
     startSaving(async () => {
       // ── Phase 1: create the competition row (tiny payload) ──────────────
       setSaveProgress("Creating competition…");
@@ -143,6 +250,11 @@ export function CompetitionEditor({
         ext: "dat" | "out" | "md",
         type: "student" | "test" | "problem-text",
       ) => {
+        // Large fields were usually uploaded already for verification or
+        // fetched from a generated output — reuse that file.
+        const cached = await cachedUploadUrl(content)?.catch(() => null);
+        if (cached) return cached;
+
         const file = new File(
           [content],
           `${pname}-${parseInt(form.year) ?? new Date().getUTCFullYear()}-${type}.${ext}`,
@@ -256,6 +368,7 @@ export function CompetitionEditor({
       problems.length > 0 ? Math.max(...problems.map((p) => p.number)) + 1 : 1;
 
     const blank: EditableProblem = {
+      uid: crypto.randomUUID(),
       number: nextNumber,
       name: "",
       markdown: "",
@@ -401,6 +514,25 @@ export function CompetitionEditor({
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {verifyProgress ? (
+                <div className="mb-4 space-y-1.5 rounded-2xl border border-border/60 bg-muted/30 px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+                    <span className="truncate">
+                      [{verifyProgress.count}/{verifyProgress.total}] Verifying{" "}
+                      <span className="font-medium text-foreground">
+                        {verifyProgress.name}
+                      </span>
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      ((verifyProgress.count - 1) / verifyProgress.total) * 100
+                    }
+                    className="h-1.5"
+                  />
+                </div>
+              ) : null}
               {problems.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 px-6 py-10 text-center">
                   <p className="text-sm text-muted-foreground">
@@ -410,6 +542,7 @@ export function CompetitionEditor({
               ) : (
                 <ProblemsReviewList
                   problems={problems}
+                  verifyingUid={verifyProgress?.uid}
                   onEdit={handleEditProblem}
                   onRemove={handleRemoveProblem}
                   onToggleAll={handleToggleAll}

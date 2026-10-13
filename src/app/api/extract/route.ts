@@ -1,9 +1,12 @@
 import { auth } from "@/server/better-auth";
 import { runExtractionPipeline } from "@/server/extraction/pipeline";
-import type { ExtractionResult } from "@/server/extraction/types";
+import type {
+  ExtractionEvent,
+  ExtractionResult,
+} from "@/server/extraction/types";
 
-type SseEvent =
-  | { type: "progress"; message: string; percent: number }
+export type ExtractSseEvent =
+  | ExtractionEvent
   | { type: "complete"; result: ExtractionResult }
   | { type: "error"; message: string };
 
@@ -27,14 +30,16 @@ export async function GET(request: Request): Promise<Response> {
 
   const stream = new ReadableStream({
     async start(controller) {
-      function send(event: SseEvent): void {
+      function send(event: ExtractSseEvent): void {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
 
       try {
+        // Verification runs in the editor afterwards, problem by problem,
+        // so the review screen opens as soon as extraction itself is done.
         const result = await runExtractionPipeline(
-          { dataUrl, pdfUrl },
-          (message, percent) => send({ type: "progress", message, percent }),
+          { dataUrl, pdfUrl, verifySolutions: false },
+          send,
         );
         send({ type: "complete", result });
       } catch (error) {

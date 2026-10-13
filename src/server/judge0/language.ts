@@ -87,12 +87,57 @@ function escapeRegExp(value: string): string {
 }
 
 /**
+ * Java constructs whose contents are not code: text blocks, string and char
+ * literals, and comments. Text blocks come first so `"""` isn't read as an
+ * empty string followed by a quote.
+ */
+const JAVA_NON_CODE =
+  /"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//
+    .source;
+
+/**
+ * Renames an identifier everywhere it appears as code, leaving string
+ * literals and comments untouched. UIL problems sometimes print text that
+ * matches the class name (e.g. `public class Hello` printing "Hello"), and a
+ * blind replace would change the program's output.
+ *
+ * A single pass matches either a non-code span (kept verbatim) or the
+ * identifier (renamed), so occurrences inside literals are always consumed by
+ * the first alternative before the second can see them.
+ */
+function renameJavaIdentifier(
+  source: string,
+  from: string,
+  to: string,
+): string {
+  const re = new RegExp(
+    `(${JAVA_NON_CODE})|(?<![\\w$])${escapeRegExp(from)}(?![\\w$])`,
+    "g",
+  );
+  return source.replace(re, (match, nonCode: string | undefined) =>
+    nonCode !== undefined ? nonCode : to,
+  );
+}
+
+/**
+ * Blanks string literals and comments with spaces (newlines kept), so that
+ * structural scans like "find `class X`" only see code. Lengths and offsets
+ * are preserved, so indices found in the result are valid in the original.
+ */
+function maskJavaNonCode(source: string): string {
+  return source.replace(new RegExp(JAVA_NON_CODE, "g"), (m) =>
+    m.replace(/[^\n]/g, " "),
+  );
+}
+
+/**
  * Finds the name of the class that declares `main`, which must become `Main`.
  *
  * Scans for the last class declaration appearing before the `main` method, so
  * that helper classes declared above the entrypoint aren't picked by mistake.
  */
-function findJavaEntryClass(source: string): string | null {
+function findJavaEntryClass(rawSource: string): string | null {
+  const source = maskJavaNonCode(rawSource);
   const mainIndex = source.search(
     /(?:public\s+|static\s+|final\s+|synchronized\s+)*void\s+main\s*\(/,
   );
@@ -123,6 +168,7 @@ function stripJavaPackage(source: string): string {
     "$1",
   );
 }
+
 
 export interface PreparedSource {
   source: string;
@@ -184,7 +230,7 @@ export function prepareSource(
     out = withoutPackage;
   }
 
-  const declaredClasses = [...out.matchAll(/\bclass\s+([A-Za-z_$][\w$]*)/g)].map(
+  const declaredClasses = [...maskJavaNonCode(out).matchAll(/\bclass\s+([A-Za-z_$][\w$]*)/g)].map(
     (m) => m[1],
   );
 
@@ -195,7 +241,7 @@ export function prepareSource(
   const entry = findJavaEntryClass(out) ?? declaredClasses[0];
   if (!entry) return { source: out, notes };
 
-  out = out.replace(new RegExp(`\\b${escapeRegExp(entry)}\\b`, "g"), "Main");
+  out = renameJavaIdentifier(out, entry, "Main");
   notes.push(`Renamed class \`${entry}\` to \`Main\` for Judge0's entrypoint.`);
 
   return { source: out, notes };

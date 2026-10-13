@@ -68,3 +68,37 @@ export interface ExtractionResult {
   levelHint: string | null;
   problems: ExtractedProblem[];
 }
+
+// ---------------------------------------------------------------------------
+// Live progress events (streamed to the loader over SSE)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pipeline stages shown in the loader. ZIP reading and image upload run in
+ * parallel with the PDF stages, so each step reports its own state rather
+ * than being inferred from a single percentage.
+ */
+export type ExtractionStepId = "zip" | "images" | "scan" | "extract" | "assemble";
+
+export type ExtractionStepStatus = "active" | "done";
+
+/** Where one problem is in the PDF extraction. */
+export type ExtractionProblemStatus = "pending" | "writing" | "done";
+
+export interface ExtractionProblemProgress {
+  number: number;
+  name: string;
+  status: ExtractionProblemStatus;
+}
+
+export type ExtractionEvent =
+  | { type: "progress"; message: string; percent: number }
+  | {
+      type: "step";
+      id: ExtractionStepId;
+      status: ExtractionStepStatus;
+      /** Short count/summary shown beside the step, e.g. "12 problems". */
+      detail?: string;
+    }
+  /** Full snapshot of per-problem PDF extraction state. */
+  | { type: "problems"; problems: ExtractionProblemProgress[] };

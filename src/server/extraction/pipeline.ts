@@ -1,8 +1,14 @@
 import { extractZip, normalizeName } from "./zip-extractor";
 import { extractPdfProblems } from "./pdf-extractor";
 import { uploadImages } from "./image-uploader";
+import type { UploadedImage } from "./image-uploader";
 import { verifyAll, verifySolution } from "@/server/judge0/verify";
-import type { ExtractedProblem, ExtractionResult } from "./types";
+import type {
+  ExtractedProblem,
+  ExtractionEvent,
+  ExtractionProblemProgress,
+  ExtractionResult,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // runExtractionPipeline
@@ -12,7 +18,8 @@ import type { ExtractedProblem, ExtractionResult } from "./types";
  * Orchestrates the full competition-packet extraction pipeline:
  *
  * 1. Fetches and parses the data ZIP and the student PDF **in parallel**.
- * 2. Uploads any images found in the ZIP to UploadThing.
+ * 2. Uploads any images found in the ZIP to UploadThing as soon as the ZIP is
+ *    read, so the uploads overlap the (much slower) PDF extraction.
  * 3. Resolves `FIGURE_N` placeholders in the Claude-generated markdown with
  *    the real uploaded URLs.
  * 4. Merges ZIP file data with PDF prose for every problem.
@@ -30,47 +37,139 @@ export async function runExtractionPipeline(
      */
     verifySolutions?: boolean;
   },
-  onProgress: (message: string, percent: number) => void = () => {},
+  emit: (event: ExtractionEvent) => void = () => {},
 ): Promise<ExtractionResult> {
+  // The overall bar tracks the PDF, which dominates the runtime; the ZIP and
+  // image work report through their own steps instead.
   let reported = 0;
+  const progress = (message: string, percent: number) => {
+    reported = Math.max(reported, percent);
+    emit({ type: "progress", message, percent: reported });
+  };
 
-  onProgress("Starting extraction pipeline…", Math.max(reported, 5));
-  reported = Math.max(reported, 5);
+  progress("Downloading data archive and student packet…", 5);
 
   // -------------------------------------------------------------------------
-  // 1. Run ZIP extraction and PDF extraction in parallel
+  // 1. ZIP (+ image uploads) and PDF extraction, in parallel
   // -------------------------------------------------------------------------
-  onProgress(
-    "Downloading data archive and fetching PDF…",
-    Math.max(reported, 10),
-  );
-  reported = Math.max(reported, 10);
+  const zipTask = (async () => {
+    emit({ type: "step", id: "zip", status: "active" });
+    const zip = await extractZip(params.dataUrl, params.zipFilename);
+    emit({
+      type: "step",
+      id: "zip",
+      status: "done",
+      detail: `${zip.problems.length} problem${zip.problems.length === 1 ? "" : "s"}`,
+    });
 
-  const [zipResult, pdfResult] = await Promise.all([
-    (async () => {
-      const result = await extractZip(params.dataUrl, params.zipFilename);
-      onProgress("Data archive extracted", Math.max(reported, 30));
-      reported = Math.max(reported, 30);
-      return result;
-    })(),
-    (async () => {
-      onProgress(
-        "Analysing PDF with Claude AI — this may take a minute…",
-        Math.max(reported, 15),
-      );
-      reported = Math.max(reported, 15);
-      // PDF extraction is chunked; map chunk completion onto the 15–72% band
-      // so the loading bar advances per chunk instead of jumping at the end.
-      const result = await extractPdfProblems(params.pdfUrl, (message, done, total) => {
-        const pct = total > 0 ? 15 + Math.round((done / total) * (72 - 15)) : 15;
-        onProgress(message, Math.max(reported, pct));
-        reported = Math.max(reported, pct);
-      });
-      onProgress("AI extraction complete", Math.max(reported, 72));
-      reported = Math.max(reported, 72);
-      return result;
-    })(),
+    // Images only depend on the ZIP, so upload them now rather than after the
+    // PDF finishes. All problems upload concurrently.
+    const imageCount = zip.problems.reduce((n, p) => n + p.images.length, 0);
+    const imageDetail =
+      imageCount === 0
+        ? "No images"
+        : `${imageCount} image${imageCount === 1 ? "" : "s"}`;
+    emit({ type: "step", id: "images", status: "active", detail: imageDetail });
+    const uploads: UploadedImage[][] = await Promise.all(
+      zip.problems.map((p) => uploadImages(p.images)),
+    );
+    emit({ type: "step", id: "images", status: "done", detail: imageDetail });
+
+    return { zip, uploads };
+  })();
+
+  const pdfTask = (async () => {
+    emit({ type: "step", id: "scan", status: "active" });
+    progress("Scanning the student packet for problems…", 8);
+
+    // Per-problem state, re-sent as a snapshot whenever it changes.
+    const tracked: ExtractionProblemProgress[] = [];
+    const sendProblems = () =>
+      emit({ type: "problems", problems: tracked.map((p) => ({ ...p })) });
+    const setStatus = (
+      number: number,
+      status: ExtractionProblemProgress["status"],
+    ) => {
+      const entry = tracked.find((p) => p.number === number);
+      if (!entry || entry.status === status) return;
+      entry.status = status;
+      sendProblems();
+    };
+    const doneCount = () => tracked.filter((p) => p.status === "done").length;
+
+    // Extraction spans 15–92% of the bar, advancing one step per problem.
+    const extractPercent = () =>
+      tracked.length === 0
+        ? 15
+        : 15 + Math.round((doneCount() / tracked.length) * (92 - 15));
+
+    const result = await extractPdfProblems(params.pdfUrl, {
+      onScanProgress: (count) => {
+        emit({
+          type: "step",
+          id: "scan",
+          status: "active",
+          detail: `${count} found`,
+        });
+      },
+      onScanned: (found) => {
+        emit({
+          type: "step",
+          id: "scan",
+          status: "done",
+          detail: `${found.length} problem${found.length === 1 ? "" : "s"}`,
+        });
+        tracked.push(
+          ...found.map((p) => ({ ...p, status: "pending" as const })),
+        );
+        sendProblems();
+        emit({
+          type: "step",
+          id: "extract",
+          status: "active",
+          detail: `0/${found.length}`,
+        });
+        progress(`Extracting ${found.length} problems with Claude…`, 15);
+      },
+      onProblemWriting: (number) => {
+        setStatus(number, "writing");
+        const name = tracked.find((p) => p.number === number)?.name;
+        if (name) progress(`Extracting ${name}…`, extractPercent());
+      },
+      onProblemDone: (number) => {
+        setStatus(number, "done");
+        const name = tracked.find((p) => p.number === number)?.name;
+        emit({
+          type: "step",
+          id: "extract",
+          status: "active",
+          detail: `${doneCount()}/${tracked.length}`,
+        });
+        if (name) {
+          progress(
+            `Processed ${name} [${doneCount()}/${tracked.length}]`,
+            extractPercent(),
+          );
+        }
+      },
+    });
+
+    emit({
+      type: "step",
+      id: "extract",
+      status: "done",
+      detail: `${result.problems.length}/${tracked.length || result.problems.length}`,
+    });
+    return result;
+  })();
+
+  const [{ zip: zipResult, uploads }, pdfResult] = await Promise.all([
+    zipTask,
+    pdfTask,
   ]);
+
+  emit({ type: "step", id: "assemble", status: "active" });
+  progress("Assembling competition…", 93);
 
   // -------------------------------------------------------------------------
   // 2. Build lookup maps from PDF results.
@@ -97,12 +196,9 @@ export async function runExtractionPipeline(
   const problems: ExtractedProblem[] = [];
   const processedNumbers = new Set<number>();
 
-  onProgress("Uploading embedded images…", Math.max(reported, 80));
-  reported = Math.max(reported, 80);
-
-  for (const rawProblem of zipResult.problems) {
-    // a. Upload all images found in this problem's directory
-    const uploadedImages = await uploadImages(rawProblem.images);
+  for (const [zipIndex, rawProblem] of zipResult.problems.entries()) {
+    // a. Images were uploaded alongside the PDF extraction
+    const uploadedImages = uploads[zipIndex] ?? [];
 
     // b. Build FIGURE_N → uploaded-URL map (1-based index per problem)
     const imagePlaceholderMap: Record<string, string> = {};
@@ -147,8 +243,6 @@ export async function runExtractionPipeline(
     processedNumbers.add(canonicalNumber);
   }
 
-  onProgress("Assembling competition data…", Math.max(reported, 92));
-  reported = Math.max(reported, 92);
 
   // -------------------------------------------------------------------------
   // 5. Process PDF-only problems (PDF found them but the ZIP had no data)
@@ -186,8 +280,7 @@ export async function runExtractionPipeline(
   //    must not lose an otherwise-successful extraction.
   // -------------------------------------------------------------------------
   if (params.verifySolutions !== false && problems.length > 0) {
-    onProgress("Verifying solutions against judge data…", Math.max(reported, 94));
-    reported = Math.max(reported, 94);
+    progress("Verifying solutions against judge data…", 94);
 
     let completed = 0;
     await verifyAll(problems, async (p) => {
@@ -202,15 +295,15 @@ export async function runExtractionPipeline(
       });
 
       completed += 1;
-      onProgress(
+      progress(
         `Verified ${completed}/${problems.length} solutions…`,
         Math.min(98, 94 + Math.round((completed / problems.length) * 4)),
       );
     });
   }
 
-  onProgress("Extraction complete", Math.max(reported, 99));
-  reported = Math.max(reported, 99);
+  emit({ type: "step", id: "assemble", status: "done" });
+  progress("Extraction complete", 99);
 
   // -------------------------------------------------------------------------
   // 8. Return the complete extraction result

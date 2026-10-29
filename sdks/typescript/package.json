@@ -1,0 +1,30 @@
+{
+  "name": "@tacocarlos/luna-cs-uil",
+  "version": "0.0.1",
+  "description": "Unofficial client for the UIL Computer Science problems API at api.lunaghs.dev. Not affiliated with or endorsed by UIL.",
+  "author": "Carlos Luna",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tacocarlos/cs-uil-api.git",
+    "directory": "sdks/typescript"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "LICENSE"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

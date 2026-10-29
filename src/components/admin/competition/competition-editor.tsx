@@ -309,6 +309,7 @@ export function CompetitionEditor({
           ),
           verification_status: p.verification?.status,
           verification_message: p.verification?.message ?? null,
+          images: p.images,
         };
 
         const probResult = await saveProblem(competitionId, problemData);
@@ -377,7 +378,7 @@ export function CompetitionEditor({
       testData: "",
       testOutput: "",
       solution: "",
-      imageUrls: {},
+      images: [],
       isDirty: true,
       enabled: false,
     };

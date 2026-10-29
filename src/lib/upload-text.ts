@@ -28,8 +28,16 @@ function keyFromUrl(url: string | null | undefined): string | null {
 export async function deleteUploadThingFiles(
   urls: (string | null | undefined)[],
 ): Promise<void> {
-  const keys = urls.map(keyFromUrl).filter((k): k is string => k !== null);
+  await deleteUploadThingKeys(
+    urls.map(keyFromUrl).filter((k): k is string => k !== null),
+  );
+}
 
+/**
+ * Deletes a batch of UploadThing files by file key. Best-effort, like
+ * {@link deleteUploadThingFiles}.
+ */
+export async function deleteUploadThingKeys(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
 
   try {

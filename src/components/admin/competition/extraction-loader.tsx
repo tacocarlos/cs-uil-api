@@ -51,14 +51,14 @@ type Stage =
 // ---------------------------------------------------------------------------
 
 /**
- * Displayed in pipeline order. The ZIP/image steps run alongside the PDF
- * steps, so more than one can be active at once.
+ * Displayed in pipeline order. The ZIP step runs alongside the PDF steps, so
+ * more than one can be active at once.
  */
 const STEPS: ReadonlyArray<{ id: ExtractionStepId; label: string }> = [
   { id: "zip", label: "Read data ZIP" },
-  { id: "images", label: "Upload images" },
   { id: "scan", label: "Find problems in PDF" },
   { id: "extract", label: "Extract problem text" },
+  { id: "images", label: "Capture figures" },
   { id: "assemble", label: "Assemble competition" },
 ];
 

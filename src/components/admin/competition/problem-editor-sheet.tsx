@@ -51,6 +51,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { MarkdownPreview } from "./markdown-preview";
+import { FigureManager } from "@/components/admin/figure-manager";
+import { toImageMap, type ProblemImage } from "@/lib/problem-images";
 import { draftDataRefs } from "./draft-refs";
 import type { EditableProblem } from "./types";
 
@@ -66,6 +68,7 @@ interface DraftState {
   testData: string;
   testOutput: string;
   solution: string;
+  images: ProblemImage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +116,7 @@ export function ProblemEditorSheet({
     testData: "",
     testOutput: "",
     solution: "",
+    images: [],
   });
 
   /** Latest verification outcome shown in the Verification tab. */
@@ -139,6 +143,7 @@ export function ProblemEditorSheet({
         testData: problem.testData,
         testOutput: problem.testOutput,
         solution: problem.solution,
+        images: problem.images,
       });
       setOutcome(problem.verification ?? null);
       setGenerated(null);
@@ -472,10 +477,25 @@ export function ProblemEditorSheet({
                         Preview
                       </Label>
                       <div className="min-h-125 overflow-y-auto rounded-2xl border border-border/60 bg-muted/10 p-4">
-                        <MarkdownPreview content={draft.markdown} />
+                        <MarkdownPreview
+                          content={draft.markdown}
+                          images={toImageMap(draft.images)}
+                        />
                       </div>
                     </div>
                   </div>
+
+                  <Separator className="my-4" />
+                  <FigureManager
+                    markdown={draft.markdown}
+                    images={draft.images}
+                    onChange={(update) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        images: update(prev.images),
+                      }))
+                    }
+                  />
                 </div>
               </ScrollArea>
             </TabsContent>

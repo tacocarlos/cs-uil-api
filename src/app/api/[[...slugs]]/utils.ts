@@ -1,4 +1,4 @@
-import { t, type TSchema } from "elysia";
+import { Elysia, status, t, type TSchema } from "elysia";
 import { createSelectSchema } from "drizzle-typebox";
 import { and, eq } from "drizzle-orm";
 import { competition, problem } from "@db/schemas/core-schema";
@@ -30,11 +30,45 @@ export const TProblemSchema = t.Omit(_problemSelectSchema, [
 ]);
 export const TCompetitionSchema = t.Omit(_competitionSelectSchema, ["enabled"]);
 export const TShortProblemSchema = t.Object({
-  id: t.Number(),
-  competition_id: t.Number(),
+  id: t.Integer(),
+  competition_id: t.Integer(),
   name: t.String(),
-  number: t.Number(),
+  number: t.Integer(),
 });
+export const TProblemMarkdownSchema = t.Object({
+  markdown: t.String({
+    description:
+      "Problem statement as GitHub-flavoured markdown. Figures appear as image " +
+      "links whose target is a placeholder, e.g. `![Figure 1](uil-cs-api-figure:1)`; " +
+      "look the placeholder up in `images` to get the URL.",
+  }),
+  images: t.Record(t.String(), t.String(), {
+    description:
+      "Figure placeholder → current image URL. Resolve placeholders at render " +
+      "time rather than caching URLs, since they change if storage moves.",
+  }),
+});
+export const TApiErrorSchema = t.Object({
+  message: t.String(),
+});
+
+/**
+ * Named response schemas. Registering them as models puts them under
+ * `components/schemas` in the OpenAPI spec, so generated SDKs get classes named
+ * `Problem`, `Competition`, etc. instead of per-endpoint inline types. Model
+ * names become public class names in those SDKs, so avoid renaming them.
+ */
+export const ApiModels = new Elysia({ name: "uil-api-models" }).model({
+  Problem: TProblemSchema,
+  ShortProblem: TShortProblemSchema,
+  Competition: TCompetitionSchema,
+  ProblemMarkdown: TProblemMarkdownSchema,
+  ApiError: TApiErrorSchema,
+});
+
+export function notFound(message: string) {
+  return status(404, { message });
+}
 
 function getFields<T extends TableConfig>(table: SQLiteTableWithColumns<T>) {
   const {
@@ -122,11 +156,11 @@ export function OptionalInt(defaultValue?: number) {
 }
 
 export function IdParam() {
-  return t.Object({ id: t.Number() });
+  return t.Object({ id: t.Integer() });
 }
 
 export function ParamsWithId<T extends TSchema>(otherParams: T) {
-  const idObject = t.Object({ id: t.Number() });
+  const idObject = t.Object({ id: t.Integer() });
   return t.Composite([idObject, otherParams]);
 }
 

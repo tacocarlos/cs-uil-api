@@ -1,0 +1,17 @@
+# Hand-written: packaging, README, tests and the LunaCsUilClient layer.
+pyproject.toml
+README.md
+.gitignore
+luna_cs_uil/client.py
+luna_cs_uil/figures.py
+test/**
+# Not used: legacy packaging and CI templates.
+setup.py
+setup.cfg
+requirements.txt
+test-requirements.txt
+tox.ini
+.travis.yml
+.gitlab-ci.yml
+.github/**
+git_push.sh

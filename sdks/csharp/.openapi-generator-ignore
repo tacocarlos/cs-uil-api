@@ -1,0 +1,12 @@
+# Hand-written: project files, README, tests and the LunaCsUilClient layer.
+LunaCsUil.sln
+src/LunaCsUil/LunaCsUil.csproj
+src/LunaCsUil/LunaCsUilClient.cs
+src/LunaCsUil/Figures.cs
+src/LunaCsUil.Test/**
+README.md
+.gitignore
+# Not used: CI templates.
+appveyor.yml
+git_push.sh
+api/**

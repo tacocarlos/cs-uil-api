@@ -2,8 +2,11 @@ import { z } from "zod";
 import {
   CHEAP_MODEL,
   LARGE_OUTPUT_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OutputTruncatedError,
   streamObjectWithFallback,
 } from "@/server/ai/fallback";
+import { normalizePlaceholders } from "@/lib/problem-images";
 import type { PdfProblemExtraction } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -27,8 +30,10 @@ const problemSchema = z.object({
         "3) Wrap sample input/output in fenced code blocks with no language tag. " +
         "4) Preserve all numeric constraints, data types, and limits verbatim. " +
         "5) Format tables using GFM pipe syntax. " +
-        "6) For each figure or diagram seen in this problem, insert a placeholder: " +
-        "   ![Figure N](FIGURE_N)  — where N is 1-based within THIS problem. " +
+        "6) For each figure or diagram seen in this problem (not tables or ASCII art, " +
+        "   which are text), insert a placeholder: " +
+        "   ![Figure N](uil-cs-api-figure:N)  — where N is 1-based within THIS problem, " +
+        "   and record its location in `figures`. " +
         "7) For inline math use $expression$; display math use $$expression$$.",
     ),
   student_input: z
@@ -36,7 +41,8 @@ const problemSchema = z.object({
     .describe(
       "The exact sample input text shown in the 'Sample Input' section of this problem. " +
         "Copy verbatim, preserving all whitespace and line breaks as real newline characters. " +
-        "Return an empty string if the problem has no sample input.",
+        "Return an empty string if the problem has no sample input, including when the " +
+        "packet just says 'None'.",
     ),
   student_output: z
     .string()
@@ -44,10 +50,38 @@ const problemSchema = z.object({
       "The exact expected output shown in the 'Sample Output' or 'Expected Output' section. " +
         "Copy verbatim, preserving all whitespace and line breaks as real newline characters.",
     ),
-  figureCount: z
-    .number()
-    .int()
-    .describe("Number of figures/diagrams found in this problem (0 if none)"),
+  figures: z
+    .array(
+      z.object({
+        figure: z
+          .number()
+          .int()
+          .describe("N of the matching ![Figure N](uil-cs-api-figure:N) placeholder"),
+        page: z
+          .number()
+          .int()
+          .describe(
+            "1-based index of the PDF page the figure is on, counting from the " +
+              "first page of the file (not the printed page number)",
+          ),
+        box: z
+          .object({
+            x0: z.number().describe("Left edge, 0–1000"),
+            y0: z.number().describe("Top edge, 0–1000"),
+            x1: z.number().describe("Right edge, 0–1000"),
+            y1: z.number().describe("Bottom edge, 0–1000"),
+          })
+          .describe(
+            "Bounding box of the whole figure on a 0–1000 grid over the page " +
+              "(0,0 = top-left, 1000,1000 = bottom-right), including its labels " +
+              "but not surrounding body text",
+          ),
+      }),
+    )
+    .describe(
+      "One entry per uil-cs-api-figure:N placeholder in the markdown, giving where that " +
+        "figure appears in the PDF. Empty if the problem has no figures.",
+    ),
 });
 
 /**
@@ -100,14 +134,38 @@ Guidelines:
 - Reproduce all technical information exactly — constraints, data types, edge cases, \
   example values.
 - For figures or diagrams (graphs, trees, grids, flow charts, etc.), insert a placeholder \
-  in the markdown at the correct position: ![Figure N](FIGURE_N) where N resets to 1 for \
-  each problem. Set figureCount accordingly.
+  in the markdown at the correct position: ![Figure N](uil-cs-api-figure:N) where N resets to 1 for \
+  each problem. For each placeholder, add an entry to figures giving the PDF page it is on \
+  and its bounding box on a 0–1000 grid over that page. The box is used to screenshot the \
+  figure, so it must enclose the entire figure and nothing else.
+- A table of plain text is not a figure: write it as a GFM table instead.
+- Neither is ASCII art or any other picture drawn with text characters (e.g. a \
+  shape in the sample output): copy it character for character into a fenced code \
+  block. Only pictures you cannot reproduce as text are figures. Pictures laid out \
+  together as one group (e.g. several diagrams side by side, each with a caption) \
+  are a single figure; its box covers the whole group, captions included.
 - Do NOT summarise or paraphrase. Reproduce the full problem content.
 - Competition metadata (year, level) is usually on the cover page or page headers.
 - For student_input: copy the exact text from the 'Sample Input' section verbatim \
-  (all test cases, all whitespace, all line breaks). Return "" if no sample input is shown.
+  (all test cases, all whitespace, all line breaks). Return "" if no sample input is shown \
+  or the section just says "None".
 - For student_output: copy the exact text from the 'Sample Output' section verbatim. \
   Return "" if no sample output is shown.`.trim();
+
+/**
+ * A sample input section that only says there is no input. Models copy the
+ * packet's "None" verbatim despite the instructions, and it would otherwise be
+ * stored as a one-line input file.
+ */
+const NO_INPUT = /^\s*(?:none|n\/a)\.?\s*$/i;
+
+/** Whether an error (or its cause) is a fetch timeout. */
+function isTimeout(error: unknown): boolean {
+  for (let e = error; e instanceof Object; e = (e as { cause?: unknown }).cause) {
+    if ((e as { name?: unknown }).name === "TimeoutError") return true;
+  }
+  return false;
+}
 
 const SCAN_SYSTEM_PROMPT = `\
 You are a precise document analysis engine for UIL (University Interscholastic League) \
@@ -202,6 +260,8 @@ export async function extractPdfProblems(
   problems: PdfProblemExtraction[];
   yearHint: number | null;
   levelHint: string | null;
+  /** The packet's bytes, for rendering figures without downloading it again */
+  pdf: Buffer;
 }> {
   const response = await fetch(pdfUrl);
   if (!response.ok) {
@@ -257,62 +317,98 @@ export async function extractPdfProblems(
       problems: [],
       yearHint: scan.competitionYear,
       levelHint: scan.competitionLevel,
+      pdf: pdfBuffer,
     };
   }
 
   // ── Pass 2: extract each chunk of problems fully, in parallel ─────────────
   const chunks = chunk(found, CHUNK_SIZE);
 
+  /**
+   * Extracts a group of problems, splitting it up when the request is too
+   * big: long sample I/O can push a chunk past the output budget, and a
+   * reasoning model can think past the HTTP client's 5-minute idle timeout
+   * before streaming anything. Single problems are much smaller, so the
+   * group is retried one problem at a time (and a lone problem once more
+   * after a timeout) rather than losing the whole chunk.
+   */
+  const extractGroup = async (
+    numbers: number[],
+    attempt = 1,
+  ): Promise<z.infer<typeof pdfChunkSchema>["problems"]> => {
+    try {
+      return await extractProblems(numbers);
+    } catch (error) {
+      const truncated = error instanceof OutputTruncatedError;
+      const timedOut = isTimeout(error);
+      if (numbers.length > 1 && (truncated || timedOut)) {
+        console.warn(
+          `[extract] problems ${numbers.join(", ")} ${truncated ? "overflowed the output budget" : "timed out"}; retrying one at a time.`,
+        );
+        const problems = [];
+        for (const n of numbers) problems.push(...(await extractGroup([n])));
+        return problems;
+      }
+      if (timedOut && attempt === 1) {
+        console.warn(`[extract] problem ${numbers[0]} timed out; retrying.`);
+        return extractGroup(numbers, 2);
+      }
+      throw error;
+    }
+  };
+
+  const extractProblems = async (numbers: number[]) => {
+    // A problem is complete once the model has moved on to the next one.
+    // Report each transition once, however many partials arrive.
+    let writingIndex = -1;
+    const advanceTo = (index: number) => {
+      while (writingIndex < index) {
+        const finished = numbers[writingIndex];
+        if (finished !== undefined) hooks.onProblemDone?.(finished);
+        writingIndex += 1;
+        const next = numbers[writingIndex];
+        if (next !== undefined) hooks.onProblemWriting?.(next);
+      }
+    };
+    advanceTo(0);
+
+    const { object: chunkResult } = await streamObjectWithFallback({
+      model: LARGE_OUTPUT_MODEL,
+      // This call also reports where each figure is on the page.
+      fallbackModel: OPENROUTER_VISION_MODEL,
+      schema: pdfChunkSchema,
+      onPartial: (partial) => {
+        const length = partial.problems?.length ?? 0;
+        if (length > 0) advanceTo(Math.min(length - 1, numbers.length - 1));
+      },
+      system: EXTRACTION_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user" as const,
+          content: [
+            fileContent,
+            {
+              type: "text" as const,
+              text:
+                `Extract ONLY the following problem(s) from this packet, in full: ` +
+                `${numbers.map((n) => `#${n}`).join(", ")}. ` +
+                `Ignore all other problems.`,
+            },
+          ],
+        },
+      ],
+    });
+
+    // The final problem (and any the model skipped) completes with the call.
+    advanceTo(numbers.length);
+
+    return chunkResult.problems;
+  };
+
   const chunkResults = await mapWithConcurrency(
     chunks,
     CHUNK_CONCURRENCY,
-    async (group) => {
-      const numbers = group.map((p) => p.number);
-
-      // A problem is complete once the model has moved on to the next one.
-      // Report each transition once, however many partials arrive.
-      let writingIndex = -1;
-      const advanceTo = (index: number) => {
-        while (writingIndex < index) {
-          const finished = numbers[writingIndex];
-          if (finished !== undefined) hooks.onProblemDone?.(finished);
-          writingIndex += 1;
-          const next = numbers[writingIndex];
-          if (next !== undefined) hooks.onProblemWriting?.(next);
-        }
-      };
-      advanceTo(0);
-
-      const { object: chunkResult } = await streamObjectWithFallback({
-        model: LARGE_OUTPUT_MODEL,
-        schema: pdfChunkSchema,
-        onPartial: (partial) => {
-          const length = partial.problems?.length ?? 0;
-          if (length > 0) advanceTo(Math.min(length - 1, numbers.length - 1));
-        },
-        system: EXTRACTION_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user" as const,
-            content: [
-              fileContent,
-              {
-                type: "text" as const,
-                text:
-                  `Extract ONLY the following problem(s) from this packet, in full: ` +
-                  `${numbers.map((n) => `#${n}`).join(", ")}. ` +
-                  `Ignore all other problems.`,
-              },
-            ],
-          },
-        ],
-      });
-
-      // The final problem (and any the model skipped) completes with the call.
-      advanceTo(numbers.length);
-
-      return chunkResult.problems;
-    },
+    (group) => extractGroup(group.map((p) => p.number)),
   );
 
   const problems: PdfProblemExtraction[] = [];
@@ -321,10 +417,10 @@ export async function extractPdfProblems(
       problems.push({
         number: p.number,
         name: p.name,
-        markdown: p.markdown,
-        figureCount: p.figureCount,
+        markdown: normalizePlaceholders(p.markdown),
+        figures: p.figures,
         studentOutput: p.student_output,
-        studentInput: p.student_input,
+        studentInput: NO_INPUT.test(p.student_input) ? "" : p.student_input,
       });
     }
   }
@@ -335,5 +431,6 @@ export async function extractPdfProblems(
     problems,
     yearHint: scan.competitionYear,
     levelHint: scan.competitionLevel,
+    pdf: pdfBuffer,
   };
 }

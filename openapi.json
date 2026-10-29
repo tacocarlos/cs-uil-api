@@ -1,0 +1,453 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "UIL CS API",
+    "description": "Public API for UIL Computer Science competitions and problems.",
+    "version": "0.0.1"
+  },
+  "paths": {
+    "/api/problems": {
+      "get": {
+        "operationId": "getAllProblems",
+        "summary": "Returns minimal data for all problems, or up to a limit if specified",
+        "description": "Returns the id, competition id, name, and problem number for all problems. If a limit or offset are provided, then they are used.",
+        "tags": [
+          "problem"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShortProblem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/problems/{id}": {
+      "get": {
+        "operationId": "getProblemById",
+        "summary": "Get all problem data by id",
+        "description": "Retrieves the data for a single problem.",
+        "tags": [
+          "problem"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response for status 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/problems/{id}/markdown": {
+      "get": {
+        "operationId": "getProblemMarkdownById",
+        "summary": "Get problem markdown by id",
+        "description": "Returns the problem statement and the URLs of its figures. The markdown refers to each figure by placeholder; substitute the URL from `images` when rendering.",
+        "tags": [
+          "problem"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemMarkdown"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response for status 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/competition": {
+      "get": {
+        "operationId": "getAllCompetitions",
+        "summary": "Returns a list of all competitions",
+        "tags": [
+          "competition"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Competition"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/competition/{id}": {
+      "get": {
+        "operationId": "getCompetitionById",
+        "summary": "Get competition data",
+        "tags": [
+          "competition"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Competition"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response for status 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/competition/{id}/problems": {
+      "get": {
+        "operationId": "getCompetitionProblems",
+        "summary": "Returns all problems for a given competition",
+        "tags": [
+          "competition"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Problem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/version": {
+      "get": {
+        "operationId": "getVersion",
+        "summary": "Returns the API version",
+        "tags": [
+          "meta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Response for status 200",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "required": [
+          "id",
+          "competition",
+          "createdAt",
+          "updatedAt",
+          "name",
+          "number",
+          "problem_text_url",
+          "student_data_url",
+          "student_output_url",
+          "test_data_url",
+          "test_output_url",
+          "solution"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "competition": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "name": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "problem_text_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "student_data_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "student_output_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "test_data_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "test_output_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "solution": {
+            "type": "string"
+          }
+        }
+      },
+      "ShortProblem": {
+        "type": "object",
+        "required": [
+          "id",
+          "competition_id",
+          "name",
+          "number"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "competition_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          }
+        }
+      },
+      "Competition": {
+        "type": "object",
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "level",
+          "year",
+          "student_packet_url",
+          "data_zip_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "invA",
+              "invB",
+              "district",
+              "state",
+              "region",
+              "custom"
+            ],
+            "nullable": true
+          },
+          "year": {
+            "type": "integer"
+          },
+          "student_packet_url": {
+            "maxLength": 2083,
+            "type": "string"
+          },
+          "data_zip_url": {
+            "maxLength": 2083,
+            "type": "string"
+          }
+        }
+      },
+      "ProblemMarkdown": {
+        "type": "object",
+        "required": [
+          "markdown",
+          "images"
+        ],
+        "properties": {
+          "markdown": {
+            "description": "Problem statement as GitHub-flavoured markdown. Figures appear as image links whose target is a placeholder, e.g. `![Figure 1](uil-cs-api-figure:1)`; look the placeholder up in `images` to get the URL.",
+            "type": "string"
+          },
+          "images": {
+            "description": "Figure placeholder → current image URL. Resolve placeholders at render time rather than caching URLs, since they change if storage moves.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.lunaghs.dev"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>LunaCsUil</RootNamespace>
+    <AssemblyName>LunaCsUil</AssemblyName>
+    <PackageId>LunaCsUil</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>Carlos Luna</Authors>
+    <Description>Unofficial client for the UIL Computer Science problems API at api.lunaghs.dev. Not affiliated with or endorsed by UIL.</Description>
+    <RepositoryUrl>https://github.com/tacocarlos/cs-uil-api</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Generated code predates nullable annotations and lacks some XML docs. -->
+    <Nullable>annotations</Nullable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Polly" Version="8.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LEVEL_LABELS } from "@/components/admin/competition/types";
+import { toImageMap } from "@/lib/problem-images";
 /** UIL competitions have exactly 12 problems. "Custom" has no enforced cap. */
 const MAX_STANDARD_PROBLEMS = 12;
 
@@ -92,7 +93,10 @@ export default async function ProblemPage({
           {/* Markdown body */}
           <Card className="mb-6">
             <CardContent className="pt-6">
-              <MarkdownPreview content={problem.markdown} />
+              <MarkdownPreview
+                content={problem.markdown}
+                images={toImageMap(problem.images)}
+              />
             </CardContent>
           </Card>
 

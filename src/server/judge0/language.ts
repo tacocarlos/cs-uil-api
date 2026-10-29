@@ -133,8 +133,9 @@ function maskJavaNonCode(source: string): string {
 /**
  * Finds the name of the class that declares `main`, which must become `Main`.
  *
- * Scans for the last class declaration appearing before the `main` method, so
- * that helper classes declared above the entrypoint aren't picked by mistake.
+ * That is the top-level class whose body contains the `main` method. Nested
+ * helper classes declared above `main` (e.g. `static class Edge` inside the
+ * entry class) are skipped, as are separate top-level helper classes.
  */
 function findJavaEntryClass(rawSource: string): string | null {
   const source = maskJavaNonCode(rawSource);
@@ -144,11 +145,17 @@ function findJavaEntryClass(rawSource: string): string | null {
   if (mainIndex === -1) return null;
 
   const classRe = /\bclass\s+([A-Za-z_$][\w$]*)/g;
+  let depth = 0;
+  let scanned = 0;
   let entry: string | null = null;
   let match: RegExpExecArray | null;
   while ((match = classRe.exec(source)) !== null) {
     if (match.index >= mainIndex) break;
-    entry = match[1] ?? entry;
+    for (; scanned < match.index; scanned++) {
+      if (source[scanned] === "{") depth++;
+      else if (source[scanned] === "}") depth--;
+    }
+    if (depth === 0) entry = match[1] ?? entry;
   }
   return entry;
 }
@@ -169,6 +176,34 @@ function stripJavaPackage(source: string): string {
   );
 }
 
+
+/** `"name.out"` or `"name.out", true`: the arguments of a file writer. */
+const JAVA_FILE_ARGS = String.raw`\s*"[^"\n]*"\s*(?:,\s*(?:true|false)\s*)?`;
+
+/**
+ * Points file output at stdout. UIL ships the programs that generated the
+ * judge files, and some still write to `name.out`; Judge0 only captures
+ * stdout, so they would appear to print nothing. Each writer is swapped in
+ * place on its own line, keeping line numbers intact.
+ */
+function redirectJavaFileOutput(source: string): string {
+  return source
+    .replace(
+      new RegExp(
+        String.raw`new\s+(PrintWriter|PrintStream)\s*\(\s*(?:new\s+(?:File|FileWriter|FileOutputStream)\s*\(${JAVA_FILE_ARGS}\)|"[^"\n]*")\s*\)`,
+        "g",
+      ),
+      "new $1(System.out)",
+    )
+    .replace(
+      new RegExp(String.raw`new\s+FileWriter\s*\(${JAVA_FILE_ARGS}\)`, "g"),
+      "new java.io.OutputStreamWriter(System.out)",
+    )
+    .replace(
+      new RegExp(String.raw`new\s+FileOutputStream\s*\(${JAVA_FILE_ARGS}\)`, "g"),
+      "System.out",
+    );
+}
 
 export interface PreparedSource {
   source: string;
@@ -228,6 +263,14 @@ export function prepareSource(
       "Removed `package` declaration (Judge0 compiles in a flat dir). Line numbers are preserved.",
     );
     out = withoutPackage;
+  }
+
+  const withStdout = redirectJavaFileOutput(out);
+  if (withStdout !== out) {
+    notes.push(
+      "Redirected file output to stdout (Judge0 only captures stdout). Line numbers are preserved.",
+    );
+    out = withStdout;
   }
 
   const declaredClasses = [...maskJavaNonCode(out).matchAll(/\bclass\s+([A-Za-z_$][\w$]*)/g)].map(

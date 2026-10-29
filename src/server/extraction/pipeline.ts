@@ -1,14 +1,44 @@
 import { extractZip, normalizeName } from "./zip-extractor";
 import { extractPdfProblems } from "./pdf-extractor";
-import { uploadImages } from "./image-uploader";
-import type { UploadedImage } from "./image-uploader";
+import { captureFigures, type CapturedFigure } from "./figure-capture";
+import { uploadImages, type ImageToUpload } from "./image-uploader";
 import { verifyAll, verifySolution } from "@/server/judge0/verify";
+import { placeholdersIn } from "@/lib/problem-images";
 import type {
   ExtractedProblem,
   ExtractionEvent,
   ExtractionProblemProgress,
   ExtractionResult,
+  RawProblemFiles,
 } from "./types";
+
+/**
+ * The images to upload for one problem: every figure screenshotted from the
+ * PDF, then ZIP images for any placeholders still unfilled, in order.
+ *
+ * The PDF screenshots come first because each one was located for a specific
+ * placeholder. ZIP images carry no such link, so they only fill the gaps.
+ * Images for placeholders that are not in the markdown are dropped.
+ */
+function figuresFor(
+  markdown: string,
+  captured: CapturedFigure[],
+  zipImages: RawProblemFiles["images"],
+): ImageToUpload[] {
+  const wanted = placeholdersIn(markdown);
+  const fromPdf = captured.filter((f) => wanted.includes(f.placeholder));
+  const filled = new Set(fromPdf.map((f) => f.placeholder));
+  const fromZip = wanted
+    .filter((placeholder) => !filled.has(placeholder))
+    .slice(0, zipImages.length)
+    .map((placeholder, i) => ({
+      ...zipImages[i]!,
+      placeholder,
+      width: null,
+      height: null,
+    }));
+  return [...fromPdf, ...fromZip];
+}
 
 // ---------------------------------------------------------------------------
 // runExtractionPipeline
@@ -18,12 +48,12 @@ import type {
  * Orchestrates the full competition-packet extraction pipeline:
  *
  * 1. Fetches and parses the data ZIP and the student PDF **in parallel**.
- * 2. Uploads any images found in the ZIP to UploadThing as soon as the ZIP is
- *    read, so the uploads overlap the (much slower) PDF extraction.
- * 3. Resolves `FIGURE_N` placeholders in the Claude-generated markdown with
- *    the real uploaded URLs.
- * 4. Merges ZIP file data with PDF prose for every problem.
- * 5. Falls back gracefully when a problem exists only in one source.
+ * 2. Screenshots each figure out of the PDF at the location Claude reported
+ *    for its `uil-cs-api-figure:N` placeholder, and uploads it to UploadThing. The
+ *    markdown keeps the placeholders; each problem's `images` maps them to
+ *    the uploaded files.
+ * 3. Merges ZIP file data with PDF prose for every problem.
+ * 4. Falls back gracefully when a problem exists only in one source.
  */
 export async function runExtractionPipeline(
   params: {
@@ -39,8 +69,8 @@ export async function runExtractionPipeline(
   },
   emit: (event: ExtractionEvent) => void = () => {},
 ): Promise<ExtractionResult> {
-  // The overall bar tracks the PDF, which dominates the runtime; the ZIP and
-  // image work report through their own steps instead.
+  // The overall bar tracks the PDF, which dominates the runtime; the ZIP
+  // reports through its own step instead.
   let reported = 0;
   const progress = (message: string, percent: number) => {
     reported = Math.max(reported, percent);
@@ -50,7 +80,7 @@ export async function runExtractionPipeline(
   progress("Downloading data archive and student packet…", 5);
 
   // -------------------------------------------------------------------------
-  // 1. ZIP (+ image uploads) and PDF extraction, in parallel
+  // 1. ZIP and PDF extraction, in parallel
   // -------------------------------------------------------------------------
   const zipTask = (async () => {
     emit({ type: "step", id: "zip", status: "active" });
@@ -61,21 +91,7 @@ export async function runExtractionPipeline(
       status: "done",
       detail: `${zip.problems.length} problem${zip.problems.length === 1 ? "" : "s"}`,
     });
-
-    // Images only depend on the ZIP, so upload them now rather than after the
-    // PDF finishes. All problems upload concurrently.
-    const imageCount = zip.problems.reduce((n, p) => n + p.images.length, 0);
-    const imageDetail =
-      imageCount === 0
-        ? "No images"
-        : `${imageCount} image${imageCount === 1 ? "" : "s"}`;
-    emit({ type: "step", id: "images", status: "active", detail: imageDetail });
-    const uploads: UploadedImage[][] = await Promise.all(
-      zip.problems.map((p) => uploadImages(p.images)),
-    );
-    emit({ type: "step", id: "images", status: "done", detail: imageDetail });
-
-    return { zip, uploads };
+    return zip;
   })();
 
   const pdfTask = (async () => {
@@ -163,13 +179,27 @@ export async function runExtractionPipeline(
     return result;
   })();
 
-  const [{ zip: zipResult, uploads }, pdfResult] = await Promise.all([
-    zipTask,
-    pdfTask,
-  ]);
+  const [zipResult, pdfResult] = await Promise.all([zipTask, pdfTask]);
 
-  emit({ type: "step", id: "assemble", status: "active" });
-  progress("Assembling competition…", 93);
+  // -------------------------------------------------------------------------
+  // 1b. Screenshot each located figure out of the PDF. The uploads happen
+  //     once each problem is assembled (step 5b).
+  //
+  //    A failure here must not lose the extraction: the placeholders stay in
+  //    the markdown, and the admin can upload the figures by hand.
+  // -------------------------------------------------------------------------
+  emit({ type: "step", id: "images", status: "active" });
+  progress("Capturing figures…", 92);
+
+  let captured = new Map<number, CapturedFigure[]>();
+  try {
+    captured = await captureFigures(
+      pdfResult.pdf,
+      pdfResult.problems.map((p) => ({ number: p.number, figures: p.figures })),
+    );
+  } catch (error) {
+    console.error("[extract] figure capture failed:", error);
+  }
 
   // -------------------------------------------------------------------------
   // 2. Build lookup maps from PDF results.
@@ -195,38 +225,48 @@ export async function runExtractionPipeline(
   // -------------------------------------------------------------------------
   const problems: ExtractedProblem[] = [];
   const processedNumbers = new Set<number>();
+  /** Figures to upload, filled into each problem's `images` afterwards. */
+  const pendingImages: Array<{ problem: ExtractedProblem; files: ImageToUpload[] }> =
+    [];
 
-  for (const [zipIndex, rawProblem] of zipResult.problems.entries()) {
-    // a. Images were uploaded alongside the PDF extraction
-    const uploadedImages = uploads[zipIndex] ?? [];
+  // UIL data ZIPs also ship alternate solutions ("EsquieAlt1", "CleaAlt")
+  // and practice problems ("DryRun") that have no page in the packet. Their
+  // ZIP number is just an alphabetical index, so the number fallback below is
+  // reserved for PDF problems no ZIP entry matched by name; otherwise these
+  // extras would be paired with, and duplicate, real problems.
+  const nameMatched = new Set(
+    zipResult.problems
+      .map((raw) => pdfByName.get(normalizeName(raw.name))?.number)
+      .filter((n) => n !== undefined),
+  );
+  const isAlternate = (raw: RawProblemFiles) =>
+    pdfResult.problems.some((p) =>
+      new RegExp(`^${normalizeName(p.name)}alt\\d*$`).test(normalizeName(raw.name)),
+    );
+  // ZIP-only problems are numbered after the packet's, so they never collide.
+  let nextExtraNumber =
+    Math.max(0, ...pdfResult.problems.map((p) => p.number)) + 1;
 
-    // b. Build FIGURE_N → uploaded-URL map (1-based index per problem)
-    const imagePlaceholderMap: Record<string, string> = {};
-    uploadedImages.forEach((img, i) => {
-      imagePlaceholderMap[`FIGURE_${i + 1}`] = img.url;
-    });
-
-    // c. Look up the PDF extraction data — name-based match first, then number.
+  for (const rawProblem of zipResult.problems) {
+    // a. Look up the PDF extraction data — name-based match first, then number.
+    const byNumber = pdfByNumber.get(rawProblem.number);
     const pdfData =
       pdfByName.get(normalizeName(rawProblem.name)) ??
-      pdfByNumber.get(rawProblem.number);
+      (byNumber && !nameMatched.has(byNumber.number) ? byNumber : undefined);
+    if (!pdfData && isAlternate(rawProblem)) continue;
+    if (byNumber && pdfData === byNumber) nameMatched.add(byNumber.number);
 
-    // d. Start with the PDF markdown, or a stub if the PDF missed this problem
-    let markdown =
+    // b. Start with the PDF markdown, or a stub if the PDF missed this problem
+    const markdown =
       pdfData?.markdown ??
       `# Problem ${rawProblem.number}\n\n*PDF content not extracted.*`;
 
-    // e. Replace every (FIGURE_N) placeholder token with the real URL
-    for (const [placeholder, url] of Object.entries(imagePlaceholderMap)) {
-      markdown = markdown.replaceAll(`(${placeholder})`, `(${url})`);
-    }
-
-    // f. Push the fully-assembled ExtractedProblem.
+    // c. Push the fully-assembled ExtractedProblem.
     //    Use the PDF's problem number as canonical (document order) when
     //    available; fall back to the ZIP's alphabetical index otherwise.
-    const canonicalNumber = pdfData?.number ?? rawProblem.number;
+    const canonicalNumber = pdfData?.number ?? nextExtraNumber++;
 
-    problems.push({
+    const assembled: ExtractedProblem = {
       number: canonicalNumber,
       name: pdfData?.name ?? rawProblem.name,
       // Prefer the ZIP's StudentData file (authoritative, not OCR'd).
@@ -237,19 +277,27 @@ export async function runExtractionPipeline(
       testOutput: rawProblem.testOutput,
       solution: rawProblem.solution,
       markdown,
-      imageUrls: imagePlaceholderMap,
+      images: [],
+    };
+    problems.push(assembled);
+    pendingImages.push({
+      problem: assembled,
+      files: figuresFor(
+        markdown,
+        pdfData ? (captured.get(pdfData.number) ?? []) : [],
+        rawProblem.images,
+      ),
     });
 
     processedNumbers.add(canonicalNumber);
   }
-
 
   // -------------------------------------------------------------------------
   // 5. Process PDF-only problems (PDF found them but the ZIP had no data)
   // -------------------------------------------------------------------------
   for (const pdfProblem of pdfResult.problems) {
     if (!processedNumbers.has(pdfProblem.number)) {
-      problems.push({
+      const assembled: ExtractedProblem = {
         number: pdfProblem.number,
         name: pdfProblem.name,
         studentData: pdfProblem.studentInput,
@@ -258,10 +306,45 @@ export async function runExtractionPipeline(
         testOutput: "",
         solution: "",
         markdown: pdfProblem.markdown,
-        imageUrls: {},
+        images: [],
+      };
+      problems.push(assembled);
+      pendingImages.push({
+        problem: assembled,
+        files: figuresFor(
+          pdfProblem.markdown,
+          captured.get(pdfProblem.number) ?? [],
+          [],
+        ),
       });
     }
   }
+
+  // -------------------------------------------------------------------------
+  // 5b. Upload every problem's figures concurrently.
+  // -------------------------------------------------------------------------
+  const figureCount = pendingImages.reduce((n, p) => n + p.files.length, 0);
+  const figureDetail =
+    figureCount === 0
+      ? "No figures"
+      : `${figureCount} figure${figureCount === 1 ? "" : "s"}`;
+  emit({ type: "step", id: "images", status: "active", detail: figureDetail });
+  await Promise.all(
+    pendingImages.map(async ({ problem, files }) => {
+      try {
+        problem.images = await uploadImages(files);
+      } catch (error) {
+        console.error(
+          `[extract] figure upload failed for problem ${problem.number}:`,
+          error,
+        );
+      }
+    }),
+  );
+  emit({ type: "step", id: "images", status: "done", detail: figureDetail });
+
+  emit({ type: "step", id: "assemble", status: "active" });
+  progress("Assembling competition…", 93);
 
   // -------------------------------------------------------------------------
   // 6. Sort all problems by number ascending

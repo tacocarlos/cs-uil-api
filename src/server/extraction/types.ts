@@ -22,21 +22,35 @@ export interface RawProblemFiles {
 }
 
 /**
+ * Where a figure sits in the student packet, as reported by the model.
+ * Used to render a screenshot of it.
+ */
+export interface FigureLocation {
+  /** N in this figure's uil-cs-api-figure:N placeholder */
+  figure: number;
+  /** 1-based page index within the PDF file */
+  page: number;
+  /** Bounding box on a 0–1000 grid over the page, origin top-left */
+  box: { x0: number; y0: number; x1: number; y1: number };
+}
+
+/**
  * Per-problem structured data returned by the Claude PDF extraction step.
- * Figure references use the placeholder format FIGURE_N (1-based within this problem).
+ * Figure references use the placeholder format uil-cs-api-figure:N (1-based within this problem).
  */
 export interface PdfProblemExtraction {
   number: number;
   name: string;
-  /** GitHub-flavoured markdown. Images appear as: ![alt](FIGURE_N) */
+  /** GitHub-flavoured markdown. Images appear as: ![alt](uil-cs-api-figure:N) */
   markdown: string;
-  /** Total number of figures/diagrams Claude identified in this problem */
-  figureCount: number;
+  /** Location of every figure Claude identified in this problem */
+  figures: FigureLocation[];
   studentOutput: string;
   studentInput: string;
 }
 
 import type { VerificationOutcome } from "@/server/judge0/types";
+import type { ProblemImage } from "@/lib/problem-images";
 
 /**
  * A single fully-resolved problem ready for the competition editor.
@@ -50,12 +64,12 @@ export interface ExtractedProblem {
   testOutput: string;
   solution: string;
   /**
-   * Final markdown with FIGURE_N placeholders already replaced by
-   * uploaded UploadThing URLs (or left as-is if no matching image was found).
+   * Problem markdown. Figures stay as uil-cs-api-figure:N placeholders; `images` holds
+   * the uploaded file for each one.
    */
   markdown: string;
-  /** Map of FIGURE_N placeholder → uploaded UploadThing URL */
-  imageUrls: Record<string, string>;
+  /** Uploaded figures, one per placeholder that could be filled */
+  images: ProblemImage[];
   /**
    * Result of running `solution` against the extracted judge data on Judge0.
    * `undefined` when verification was not requested for this run.

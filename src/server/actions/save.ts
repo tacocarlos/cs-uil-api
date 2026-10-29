@@ -12,6 +12,8 @@ import {
   COMPETITION_LEVELS,
 } from "@/components/admin/competition/types";
 import { uploadTextFile } from "@/lib/upload-text";
+import type { ProblemImage } from "@/lib/problem-images";
+import { setProblemImages } from "@/server/problem-images";
 
 // ---------------------------------------------------------------------------
 // Shared result types
@@ -109,6 +111,8 @@ export type ProblemToSave = {
   /** Judge0 verification carried over from the extraction run, if any. */
   verification_status?: VerificationStatus;
   verification_message?: string | null;
+  /** Figures already uploaded during extraction or editing */
+  images: ProblemImage[];
 };
 
 // ---------------------------------------------------------------------------
@@ -158,21 +162,29 @@ export async function saveProblem(
     //   ),
     // ]);
 
-    await db.insert(problemTable).values({
-      competition: competitionId,
-      name: problem.name.slice(0, 128),
-      number: problem.number,
-      problem_text_url: problem.problem_text_url,
-      student_data_url: problem.student_data_url,
-      student_output_url: problem.student_output_url,
-      test_data_url: problem.test_data_url,
-      test_output_url: problem.test_output_url,
-      solution: problem.solution,
-      enabled: problem.enabled,
-      verification_status: problem.verification_status ?? "unverified",
-      verification_message: problem.verification_message ?? null,
-      verified_at: problem.verification_status ? new Date() : null,
-    });
+    const [row] = await db
+      .insert(problemTable)
+      .values({
+        competition: competitionId,
+        name: problem.name.slice(0, 128),
+        number: problem.number,
+        problem_text_url: problem.problem_text_url,
+        student_data_url: problem.student_data_url,
+        student_output_url: problem.student_output_url,
+        test_data_url: problem.test_data_url,
+        test_output_url: problem.test_output_url,
+        solution: problem.solution,
+        enabled: problem.enabled,
+        verification_status: problem.verification_status ?? "unverified",
+        verification_message: problem.verification_message ?? null,
+        verified_at: problem.verification_status ? new Date() : null,
+      })
+      .returning({ id: problemTable.id });
+
+    if (!row?.id) {
+      return { success: false, error: "Failed to create problem record." };
+    }
+    await setProblemImages(row.id, problem.images);
 
     return { success: true };
   } catch (error) {

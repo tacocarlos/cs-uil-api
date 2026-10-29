@@ -5,6 +5,7 @@ import { asc, count, eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
 import { deleteUploadThingFiles } from "@/lib/upload-text";
+import { deleteImagesForProblems } from "@/server/problem-images";
 import { cache } from "react";
 
 /**
@@ -158,6 +159,7 @@ export async function deleteCompetition(
     // Fetch all problem URL fields before deletion so we know what to clean up.
     const problemRows = await db
       .select({
+        id: problem.id,
         problemTextUrl: problem.problem_text_url,
         studentDataUrl: problem.student_data_url,
         studentOutputUrl: problem.student_output_url,
@@ -167,7 +169,8 @@ export async function deleteCompetition(
       .from(problem)
       .where(eq(problem.competition, id));
 
-    // Delete DB rows first.
+    // Delete DB rows first; figures reference the problems.
+    await deleteImagesForProblems(problemRows.map((p) => p.id));
     await db.delete(problem).where(eq(problem.competition, id));
     await db.delete(competition).where(eq(competition.id, id));
 

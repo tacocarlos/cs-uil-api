@@ -8,6 +8,12 @@ import { deleteUploadThingFiles } from "@/lib/upload-text";
 import { fetchTextContent } from "@/lib/fetch-text";
 import type { TextRef } from "@/lib/text-ref";
 import { uploadTextFile } from "@/lib/upload-text";
+import type { ProblemImage } from "@/lib/problem-images";
+import {
+  deleteImagesForProblems,
+  getProblemImages,
+  setProblemImages,
+} from "@/server/problem-images";
 
 /**
  * Fetches all problems joined with their parent competition, returning a
@@ -138,16 +144,25 @@ export async function getProblemById(id: number) {
   const row = rows[0];
   if (!row) return null;
 
-  const [markdown, studentData, studentOutput, testData, testOutput] =
+  const [markdown, studentData, studentOutput, testData, testOutput, images] =
     await Promise.all([
       fetchTextContent(row.problemTextUrl),
       fetchTextContent(row.studentDataUrl),
       fetchTextContent(row.studentOutputUrl),
       fetchTextContent(row.testDataUrl),
       fetchTextContent(row.testOutputUrl),
+      getProblemImages(row.id),
     ]);
 
-  return { ...row, markdown, studentData, studentOutput, testData, testOutput };
+  return {
+    ...row,
+    markdown,
+    studentData,
+    studentOutput,
+    testData,
+    testOutput,
+    images,
+  };
 }
 
 /** Full detail shape returned by {@link getProblemById}. */
@@ -170,6 +185,8 @@ export interface UpdateProblemData {
   testOutput: TextRef;
   solution: string;
   enabled: boolean;
+  /** The problem's complete set of figures; any others are deleted */
+  images: ProblemImage[];
 }
 
 /**
@@ -218,6 +235,7 @@ export async function updateProblem(
         enabled: data.enabled,
       })
       .where(eq(problem.id, id));
+    await setProblemImages(id, data.images);
     return { success: true };
   } catch (e) {
     return {
@@ -250,7 +268,8 @@ export async function deleteProblem(
       .where(eq(problem.id, id))
       .limit(1);
 
-    // Delete the DB row first.
+    // Delete the DB rows first; figures reference the problem.
+    await deleteImagesForProblems([id]);
     await db.delete(problem).where(eq(problem.id, id));
 
     // Best-effort UploadThing cleanup — errors are logged, not re-thrown.

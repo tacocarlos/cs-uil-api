@@ -1,15 +1,16 @@
 import { Elysia, t } from "elysia";
 import { db } from "@/server/db";
-import { problem, competition } from "@/server/db/schemas/core-schema";
-import { and, eq } from "drizzle-orm";
+import { problem } from "@/server/db/schemas/core-schema";
+import { eq } from "drizzle-orm";
+import { getProblemImageMap } from "@/server/problem-images";
 import {
+  ApiModels,
   IdParam,
+  notFound,
   OptionalInt,
   ProblemEnabled,
   publicProblemSelect,
   shortProblemSelect,
-  TProblemSchema,
-  TShortProblemSchema,
   WithProblemEnabled,
 } from "../utils";
 
@@ -20,6 +21,7 @@ import {
 // (`{"type":"validation","on":"response","found":[null]}`). The runtime path is
 // minification-safe.
 export const ProblemAPI = new Elysia({ normalize: "typebox" })
+  .use(ApiModels)
   .get(
     "/problems/",
     async ({ query }) => {
@@ -43,7 +45,7 @@ export const ProblemAPI = new Elysia({ normalize: "typebox" })
         limit: OptionalInt(),
         offset: OptionalInt(0),
       }),
-      response: t.Array(TShortProblemSchema),
+      response: t.Array(t.Ref("ShortProblem")),
       detail: {
         operationId: "getAllProblems",
         summary:
@@ -63,18 +65,15 @@ export const ProblemAPI = new Elysia({ normalize: "typebox" })
         .where(WithProblemEnabled(eq(problem.id, id)))
         .limit(1);
 
-      if (result.length > 0) {
-        return { success: true, problem: result[0]! };
+      if (result.length === 0) {
+        return notFound(`Problem ${id} not found`);
       }
 
-      return { success: false, problem: null };
+      return result[0]!;
     },
     {
       params: IdParam(),
-      response: t.Object({
-        success: t.Boolean(),
-        problem: t.Nullable(TProblemSchema),
-      }),
+      response: { 200: "Problem", 404: "ApiError" },
       detail: {
         operationId: "getProblemById",
         summary: "Get all problem data by id",
@@ -97,23 +96,29 @@ export const ProblemAPI = new Elysia({ normalize: "typebox" })
         dbRes[0]?.url === null ||
         dbRes[0]?.url === undefined
       ) {
-        return { markdown: null };
+        return notFound(`No markdown for problem ${id}`);
       }
 
       const url = dbRes[0]!.url;
-      const md = await (await fetch(url)).text();
+      const [md, images] = await Promise.all([
+        fetch(url).then((res) => res.text()),
+        getProblemImageMap(id),
+      ]);
       return {
         markdown: md,
+        images,
       };
     },
     {
       params: IdParam(),
-      response: t.Object({
-        markdown: t.Nullable(t.String()),
-      }),
+      response: { 200: "ProblemMarkdown", 404: "ApiError" },
       detail: {
         operationId: "getProblemMarkdownById",
         summary: "Get problem markdown by id",
+        description:
+          "Returns the problem statement and the URLs of its figures. The " +
+          "markdown refers to each figure by placeholder; substitute the URL " +
+          "from `images` when rendering.",
         tags: ["problem"],
       },
     },

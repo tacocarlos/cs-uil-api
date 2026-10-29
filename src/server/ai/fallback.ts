@@ -44,6 +44,13 @@ export const LARGE_OUTPUT_MODEL = "claude-sonnet-4-6";
 const OPENROUTER_MODEL = "moonshotai/kimi-k3";
 
 /**
+ * OpenRouter model for calls that must read the packet's pages closely, such
+ * as locating figures to screenshot. Kimi K3's figure boxes often miss the
+ * figure entirely; K3.1 Pro has stronger vision.
+ */
+export const OPENROUTER_VISION_MODEL = "moonshotai/kimi-k3.1-pro";
+
+/**
  * Whether an error means the Anthropic account cannot pay for the request.
  *
  * The status code alone is NOT a reliable signal, for two reasons found by
@@ -94,10 +101,7 @@ export function isCreditExhaustion(error: unknown): boolean {
 
 function openRouterModel(modelId: string): LanguageModel {
   const openrouter = createOpenRouter({ apiKey: env.OPEN_ROUTER_API_KEY });
-  // Kimi K3 is used for any fallback request; the requested Anthropic model id
-  // only chooses between cheap and large-output budgets, so routing both to K3
-  // is correct and keeps the fallback simple.
-  return openrouter.chat(OPENROUTER_MODEL);
+  return openrouter.chat(modelId);
 }
 
 /**
@@ -132,8 +136,14 @@ export interface GenerateObjectOptions<T extends z.ZodTypeAny> {
   system: string;
   messages: ModelMessage[];
   temperature?: number;
-  /** Override the model for both providers. Defaults to the cheap model. */
+  /** Anthropic model. Defaults to the cheap model. */
   model?: string;
+  /**
+   * OpenRouter model used when Anthropic is out of credits. Defaults to Kimi
+   * K3, whatever the Anthropic model; its budget covers both cheap and
+   * large-output requests.
+   */
+  fallbackModel?: string;
   /** Cap on generated tokens. */
   maxOutputTokens?: number;
 }
@@ -153,6 +163,7 @@ export async function generateObjectWithFallback<T extends z.ZodTypeAny>(
   finishReason: string;
 }> {
   const modelId = options.model ?? CHEAP_MODEL;
+  const fallbackId = options.fallbackModel ?? OPENROUTER_MODEL;
 
   const build = (model: LanguageModel) => ({
     model,
@@ -181,17 +192,17 @@ export async function generateObjectWithFallback<T extends z.ZodTypeAny>(
 
     console.warn(
       "[ai] Anthropic request failed due to credit exhaustion; " +
-        `retrying via OpenRouter (${OPENROUTER_MODEL}).`,
+        `retrying via OpenRouter (${fallbackId}).`,
     );
 
     try {
       const { object, finishReason } = await generateObject(
-        build(openRouterModel(modelId)),
+        build(openRouterModel(fallbackId)),
       );
       return { object, provider: "openrouter", finishReason };
     } catch (fallbackError) {
       if (isOutputTruncation(fallbackError)) {
-        throw new OutputTruncatedError(OPENROUTER_MODEL);
+        throw new OutputTruncatedError(fallbackId);
       }
       throw fallbackError;
     }
@@ -221,6 +232,7 @@ export async function streamObjectWithFallback<T extends z.ZodTypeAny>(
   finishReason: string;
 }> {
   const modelId = options.model ?? CHEAP_MODEL;
+  const fallbackId = options.fallbackModel ?? OPENROUTER_MODEL;
 
   const run = async (model: LanguageModel) => {
     // Request failures (including credit exhaustion) arrive as stream error
@@ -265,15 +277,15 @@ export async function streamObjectWithFallback<T extends z.ZodTypeAny>(
 
     console.warn(
       "[ai] Anthropic stream failed due to credit exhaustion; " +
-        `retrying via OpenRouter (${OPENROUTER_MODEL}).`,
+        `retrying via OpenRouter (${fallbackId}).`,
     );
 
     try {
-      const { object, finishReason } = await run(openRouterModel(modelId));
+      const { object, finishReason } = await run(openRouterModel(fallbackId));
       return { object, provider: "openrouter", finishReason };
     } catch (fallbackError) {
       if (isOutputTruncation(fallbackError)) {
-        throw new OutputTruncatedError(OPENROUTER_MODEL);
+        throw new OutputTruncatedError(fallbackId);
       }
       throw fallbackError;
     }

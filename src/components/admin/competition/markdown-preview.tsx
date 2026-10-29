@@ -1,11 +1,13 @@
 "use client";
 
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import type { Components } from "react-markdown";
+import { ImageOff } from "lucide-react";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { cn } from "@/lib/utils";
+import { PLACEHOLDER_PATTERN, type ProblemImageMap } from "@/lib/problem-images";
 
 const components: Components = {
   h1: ({ children }) => (
@@ -66,10 +68,17 @@ const components: Components = {
     </th>
   ),
   td: ({ children }) => <td className="px-3 py-2 text-sm">{children}</td>,
-  img: ({ src, alt }) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt ?? ""} className="my-3 max-w-full rounded-lg" />
-  ),
+  img: ({ src, alt }) =>
+    // A placeholder that survived URL resolution has no stored figure.
+    typeof src === "string" && PLACEHOLDER_PATTERN.test(src) ? (
+      <span className="my-3 flex items-center gap-2 rounded-lg border border-dashed border-border px-4 py-6 text-xs text-muted-foreground">
+        <ImageOff className="size-4 shrink-0" />
+        {alt || src} is not available
+      </span>
+    ) : (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={src} alt={alt ?? ""} className="my-3 max-w-full rounded-lg" />
+    ),
   pre: ({ children }) => (
     <pre className="mb-3 overflow-x-auto rounded-xl bg-muted/60 p-4 font-mono text-xs leading-relaxed [&_code]:bg-transparent [&_code]:p-0 [&_code]:rounded-none">
       {children}
@@ -91,9 +100,12 @@ const components: Components = {
 
 export function MarkdownPreview({
   content,
+  images = {},
   className,
 }: {
   content: string;
+  /** Figure placeholder → URL, substituted for `uil-cs-api-figure:N` image targets */
+  images?: ProblemImageMap;
   className?: string;
 }) {
   return (
@@ -103,6 +115,14 @@ export function MarkdownPreview({
         components={components}
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
+        urlTransform={(url, key) => {
+          if (key !== "src" || !PLACEHOLDER_PATTERN.test(url)) {
+            return defaultUrlTransform(url);
+          }
+          // Unresolved placeholders pass through so `img` can flag them; the
+          // default transform would strip their unknown scheme.
+          return Object.hasOwn(images, url) ? images[url]! : url;
+        }}
       >
         {content}
       </Markdown>

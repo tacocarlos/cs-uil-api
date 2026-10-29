@@ -82,6 +82,24 @@ export const problemFileRouter = {
 
       return { uploadedBy: metadata.userId, url: file.ufsUrl };
     }),
+  /** Problem figures uploaded or replaced by hand in the problem editors. */
+  imageUploader: f({
+    image: {
+      maxFileCount: 1,
+      maxFileSize: "8MB",
+    },
+  })
+    .middleware(async () => {
+      const session = await auth.api.getSession({ headers: await headers() });
+      const user = session?.user;
+      if (user === undefined || user.role !== "admin") {
+        throw new UploadThingError("Unauthorized");
+      }
+      return { userId: user.id };
+    })
+    .onUploadComplete(async ({ metadata, file }) => {
+      return { uploadedBy: metadata.userId, url: file.ufsUrl, key: file.key };
+    }),
 } satisfies FileRouter;
 
 export type ProblemFileRouter = typeof problemFileRouter;

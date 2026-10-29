@@ -1,4 +1,4 @@
-import { sqliteTable } from "drizzle-orm/sqlite-core";
+import { sqliteTable, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const MAX_URL_LENGTH = 2083;
 const COMPETITION_LEVELS = [
@@ -83,9 +83,38 @@ export const problem = sqliteTable("problems", (t) => ({
   verified_at: t.integer({ mode: "timestamp_ms" }),
 }));
 
+/**
+ * Figures shown in a problem's markdown.
+ *
+ * The markdown refers to a figure only by its placeholder
+ * (`![…](uil-cs-api-figure:1)`); the URL lives here and is handed to clients
+ * as a placeholder → URL map.
+ * Switching storage providers therefore only rewrites these rows. `key` is
+ * the provider's own identifier for the file, used to delete or move it.
+ */
+export const problemImage = sqliteTable(
+  "problem_images",
+  (t) => ({
+    id: t.integer().primaryKey().notNull(),
+    problem: t
+      .integer()
+      .references(() => problem.id, { onDelete: "cascade" })
+      .notNull(),
+    createdAt: t.integer({ mode: "timestamp_ms" }).$defaultFn(() => new Date()),
+    placeholder: t.text({ length: 32 }).notNull(),
+    url: t.text({ length: MAX_URL_LENGTH }).notNull(),
+    storage_provider: t.text().notNull().default("uploadthing"),
+    storage_key: t.text().notNull(),
+    width: t.integer(),
+    height: t.integer(),
+  }),
+  (t) => [uniqueIndex("problem_images_problem_placeholder").on(t.problem, t.placeholder)],
+);
+
 export const table = {
   competition,
   problem,
+  problemImage,
 } as const;
 
 export type Type = typeof table;

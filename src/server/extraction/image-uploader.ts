@@ -1,14 +1,18 @@
 import { UTApi } from "uploadthing/server";
 
+import type { ProblemImage } from "@/lib/problem-images";
+
 const utapi = new UTApi();
 
-export interface UploadedImage {
-  /** Original filename */
+/** An in-memory figure waiting to be uploaded for a placeholder. */
+export interface ImageToUpload {
+  /** Markdown placeholder this image fills, e.g. "uil-cs-api-figure:1" */
+  placeholder: string;
   filename: string;
-  /** UploadThing file key */
-  key: string;
-  /** Public UFS URL */
-  url: string;
+  data: Buffer;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
 }
 
 /**
@@ -16,8 +20,8 @@ export interface UploadedImage {
  * resulting file metadata for every successfully uploaded file.
  */
 export async function uploadImages(
-  images: Array<{ filename: string; data: Buffer; mimeType: string }>,
-): Promise<UploadedImage[]> {
+  images: ImageToUpload[],
+): Promise<ProblemImage[]> {
   if (images.length === 0) return [];
 
   const files = images.map(
@@ -27,7 +31,7 @@ export async function uploadImages(
 
   const results = await utapi.uploadFiles(files);
 
-  const uploaded: UploadedImage[] = [];
+  const uploaded: ProblemImage[] = [];
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
@@ -37,9 +41,11 @@ export async function uploadImages(
     if (result.data === null) continue;
 
     uploaded.push({
-      filename: image.filename,
+      placeholder: image.placeholder,
       key: result.data.key,
       url: result.data.ufsUrl,
+      width: image.width,
+      height: image.height,
     });
   }
 

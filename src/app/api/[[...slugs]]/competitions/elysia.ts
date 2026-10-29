@@ -1,21 +1,22 @@
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { db } from "@/server/db";
 import { competition, problem } from "@/server/db/schemas/core-schema";
 import { eq, and } from "drizzle-orm";
 
 import {
+  ApiModels,
   getPublicCompetitionData,
   IdParam,
+  notFound,
   OptionalInt,
   publicProblemSelect,
-  TCompetitionSchema,
-  TProblemSchema,
 } from "../utils";
 
 // `normalize: "typebox"` avoids Elysia's "exact mirror" response-cleaning
 // codegen, which gets mangled by Next.js/Vercel minification and can rewrite
 // valid rows to `null` (response-validation 422 in production).
 export const CompetitionAPI = new Elysia({ normalize: "typebox" })
+  .use(ApiModels)
   .get(
     "/competition/",
     async ({ query }) => {
@@ -36,7 +37,7 @@ export const CompetitionAPI = new Elysia({ normalize: "typebox" })
         limit: OptionalInt(),
         offset: OptionalInt(0),
       }),
-      response: t.Array(TCompetitionSchema),
+      response: t.Array(t.Ref("Competition")),
       detail: {
         operationId: "getAllCompetitions",
         summary: "Returns a list of all competitions",
@@ -50,15 +51,16 @@ export const CompetitionAPI = new Elysia({ normalize: "typebox" })
       const [comp] = await db
         .select()
         .from(competition)
-        .where(eq(competition.id, id));
+        .where(and(eq(competition.enabled, true), eq(competition.id, id)));
       if (comp === undefined) {
-        return status(404, null);
+        return notFound(`Competition ${id} not found`);
       }
 
-      return comp;
+      return getPublicCompetitionData(comp);
     },
     {
       params: IdParam(),
+      response: { 200: "Competition", 404: "ApiError" },
       detail: {
         operationId: "getCompetitionById",
         summary: "Get competition data",
@@ -77,7 +79,7 @@ export const CompetitionAPI = new Elysia({ normalize: "typebox" })
     },
     {
       params: IdParam(),
-      response: t.Array(TProblemSchema),
+      response: t.Array(t.Ref("Problem")),
       detail: {
         operationId: "getCompetitionProblems",
         summary: "Returns all problems for a given competition",

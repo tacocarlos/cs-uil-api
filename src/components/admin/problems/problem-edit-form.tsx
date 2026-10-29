@@ -48,6 +48,8 @@ import {
   verificationLabel,
 } from "@/components/admin/verification-badge";
 import { MarkdownPreview } from "@/components/admin/competition/markdown-preview";
+import { FigureManager } from "@/components/admin/figure-manager";
+import { toImageMap, type ProblemImage } from "@/lib/problem-images";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,6 +95,7 @@ interface DraftState {
   testOutput: string;
   solution: string;
   enabled: boolean;
+  images: ProblemImage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +169,7 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
     testOutput: problem.testOutput ?? "",
     solution: problem.solution ?? "",
     enabled: problem.enabled ?? false,
+    images: problem.images,
   });
 
   function setField<K extends keyof DraftState>(key: K, value: DraftState[K]) {
@@ -695,8 +699,24 @@ export function ProblemEditForm({ problem }: ProblemEditFormProps) {
                   />
                   {/* Preview */}
                   <div className="min-h-125 overflow-y-auto rounded-2xl border border-border/60 bg-muted/10 p-4">
-                    <MarkdownPreview content={draft.markdown} />
+                    <MarkdownPreview
+                      content={draft.markdown}
+                      images={toImageMap(draft.images)}
+                    />
                   </div>
+                </div>
+                <div className="mt-6">
+                  <FigureManager
+                    markdown={draft.markdown}
+                    images={draft.images}
+                    onChange={(update) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        images: update(prev.images),
+                      }))
+                    }
+                    disabled={isPending}
+                  />
                 </div>
               </TabsContent>
 

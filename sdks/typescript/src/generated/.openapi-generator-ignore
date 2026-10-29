@@ -1,0 +1,7 @@
+# Generated code only; the package around it is hand-written in sdks/typescript.
+package.json
+tsconfig*.json
+README.md
+docs/**
+.gitignore
+.npmignore

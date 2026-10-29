@@ -1,0 +1,59 @@
+{
+  "$schema": "./node_modules/@openapitools/openapi-generator-cli/config.schema.json",
+  "spaces": 2,
+  "generator-cli": {
+    "version": "7.26.0",
+    "generators": {
+      "typescript": {
+        "generatorName": "typescript-fetch",
+        "inputSpec": "#{cwd}/openapi.json",
+        "output": "#{cwd}/sdks/typescript/src/generated",
+        "additionalProperties": {
+          "supportsES6": true,
+          "stringEnums": true,
+          "importFileExtension": ".js"
+        }
+      },
+      "java": {
+        "generatorName": "java",
+        "library": "native",
+        "inputSpec": "#{cwd}/openapi.json",
+        "output": "#{cwd}/sdks/java",
+        "additionalProperties": {
+          "groupId": "io.github.tacocarlos",
+          "artifactId": "luna-cs-uil",
+          "artifactVersion": "0.0.1",
+          "invokerPackage": "io.github.tacocarlos.lunacsuil",
+          "apiPackage": "io.github.tacocarlos.lunacsuil.api",
+          "modelPackage": "io.github.tacocarlos.lunacsuil.model",
+          "openApiNullable": false,
+          "useJakartaEe": true,
+          "hideGenerationTimestamp": true
+        }
+      },
+      "python": {
+        "generatorName": "python",
+        "inputSpec": "#{cwd}/openapi.json",
+        "output": "#{cwd}/sdks/python",
+        "additionalProperties": {
+          "packageName": "luna_cs_uil",
+          "projectName": "luna-cs-uil",
+          "packageVersion": "0.0.1"
+        }
+      },
+      "csharp": {
+        "generatorName": "csharp",
+        "library": "httpclient",
+        "inputSpec": "#{cwd}/openapi.json",
+        "output": "#{cwd}/sdks/csharp",
+        "additionalProperties": {
+          "packageName": "LunaCsUil",
+          "packageVersion": "0.0.1",
+          "targetFramework": "net8.0",
+          "nullableReferenceTypes": true,
+          "hideGenerationTimestamp": true
+        }
+      }
+    }
+  }
+}

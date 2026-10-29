@@ -1,0 +1,20 @@
+# Hand-written: the Gradle build, README and the LunaCsUilClient layer.
+build.gradle
+settings.gradle
+gradle.properties
+gradle/**
+gradlew
+gradlew.bat
+README.md
+.gitignore
+src/main/java/io/github/tacocarlos/lunacsuil/LunaCsUilClient.java
+src/main/java/io/github/tacocarlos/lunacsuil/Figures.java
+# Not used: other build systems, CI templates, Android, stub tests.
+pom.xml
+build.sbt
+.travis.yml
+.github/**
+git_push.sh
+api/**
+src/main/AndroidManifest.xml
+src/test/**

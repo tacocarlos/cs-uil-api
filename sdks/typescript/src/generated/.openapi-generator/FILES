@@ -1,0 +1,12 @@
+apis/CompetitionApi.ts
+apis/MetaApi.ts
+apis/ProblemApi.ts
+apis/index.ts
+index.ts
+models/ApiError.ts
+models/Competition.ts
+models/Problem.ts
+models/ProblemMarkdown.ts
+models/ShortProblem.ts
+models/index.ts
+runtime.ts

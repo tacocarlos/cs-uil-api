@@ -13,6 +13,9 @@
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "next dev --turbo",
+		"openapi:check": "bun run scripts/export-openapi.ts --check",
+		"openapi:export": "bun run scripts/export-openapi.ts",
+		"sdk:generate": "bun run scripts/generate-sdks.ts",
 		"preview": "next build && next start",
 		"start": "next start",
 		"smoke:openrouter": "bun run scripts/smoke-openrouter.ts",
@@ -77,6 +80,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.2.5",
+		"@openapitools/openapi-generator-cli": "^2.42.0",
 		"@tailwindcss/postcss": "^4.0.15",
 		"@types/node": "^20.14.10",
 		"@types/react": "^19.0.0",

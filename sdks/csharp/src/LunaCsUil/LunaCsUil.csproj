@@ -5,7 +5,7 @@
     <RootNamespace>LunaCsUil</RootNamespace>
     <AssemblyName>LunaCsUil</AssemblyName>
     <PackageId>LunaCsUil</PackageId>
-    <Version>0.0.1</Version>
+    <Version>0.1.0</Version>
     <Authors>Carlos Luna</Authors>
     <Description>Unofficial client for the UIL Computer Science problems API at api.lunaghs.dev. Not affiliated with or endorsed by UIL.</Description>
     <RepositoryUrl>https://github.com/tacocarlos/cs-uil-api</RepositoryUrl>

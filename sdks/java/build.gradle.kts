@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.github.tacocarlos"
-version = "0.0.1"
+version = "0.1.0"
 description = "Unofficial client for the UIL Computer Science problems API at api.lunaghs.dev. Not affiliated with or endorsed by UIL."
 
 repositories { mavenCentral() }

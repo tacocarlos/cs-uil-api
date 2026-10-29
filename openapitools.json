@@ -22,7 +22,7 @@
         "additionalProperties": {
           "groupId": "io.github.tacocarlos",
           "artifactId": "luna-cs-uil",
-          "artifactVersion": "0.0.1",
+          "artifactVersion": "0.1.0",
           "invokerPackage": "io.github.tacocarlos.lunacsuil",
           "apiPackage": "io.github.tacocarlos.lunacsuil.api",
           "modelPackage": "io.github.tacocarlos.lunacsuil.model",
@@ -38,7 +38,7 @@
         "additionalProperties": {
           "packageName": "luna_cs_uil",
           "projectName": "luna-cs-uil",
-          "packageVersion": "0.0.1"
+          "packageVersion": "0.1.0"
         }
       },
       "csharp": {
@@ -48,7 +48,7 @@
         "output": "#{cwd}/sdks/csharp",
         "additionalProperties": {
           "packageName": "LunaCsUil",
-          "packageVersion": "0.0.1",
+          "packageVersion": "0.1.0",
           "targetFramework": "net8.0",
           "nullableReferenceTypes": true,
           "hideGenerationTimestamp": true

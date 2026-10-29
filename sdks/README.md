@@ -37,3 +37,52 @@ export LUNA_CS_UIL_BASE_URL=http://localhost:3000   # or https://api.lunaghs.dev
 (cd java && ./gradlew test)
 (cd csharp && dotnet test)
 ```
+
+## Releasing
+
+All four SDKs share one version and are released together by [`.github/workflows/sdks.yml`](../.github/workflows/sdks.yml). On every push and pull request that touches the API or the SDKs, it checks that `openapi.json` and the SDKs are up to date and that the versions agree, then runs every SDK's tests against `https://api.lunaghs.dev`. A tag `sdk-vX.Y.Z` does the same and then publishes to all four registries.
+
+```sh
+bun run sdk:version 0.2.0                        # sets every package version and regenerates
+git commit -am "Release SDKs 0.2.0"
+git tag sdk-v0.2.0
+git push origin main sdk-v0.2.0
+```
+
+The tag must match the version in the files, or the release stops before publishing. Publish jobs run in the `release` environment, so you can require a manual approval in **Settings → Environments → release**.
+
+### One-time setup
+
+The `release` environment (only `sdk-v*` tags may use it; you approve each release) and the `NUGET_USER` variable are already set up. Then set up each registry.
+
+**npm** (`@tacocarlos/luna-cs-uil`). The `@tacocarlos` scope needs an npm account or organization named `tacocarlos`. Under the package's **Settings → Trusted publishing**, add GitHub Actions with repository `tacocarlos/cs-uil-api`, workflow `sdks.yml` and environment `release`. Trusted publishing can only be set up for a package that exists, so publish the first version by hand, then add it from the CLI (npm asks for your 2FA code):
+```sh
+cd sdks/typescript
+npm login
+npm publish --access public
+npm trust github --repository tacocarlos/cs-uil-api --file sdks.yml --environment release
+``` Provenance is added automatically because the repository is public.
+
+**PyPI** (`luna-cs-uil`). In your PyPI account under **Publishing → Add a new pending publisher**, enter project `luna-cs-uil`, owner `tacocarlos`, repository `cs-uil-api`, workflow `sdks.yml`, environment `release`. The first release creates the project.
+
+**NuGet** (`LunaCsUil`). On nuget.org under **Trusted Publishing**, add a policy for repository owner `tacocarlos`, repository `cs-uil-api`, workflow file `sdks.yml`, environment `release`. The workflow logs in as the nuget.org user in the repository variable `NUGET_USER` (set to `tacocarlos`).
+
+**Maven Central** (`io.github.tacocarlos:luna-cs-uil`). Maven Central has no trusted publishing, so this one uses secrets.
+
+1. Sign in to [central.sonatype.com](https://central.sonatype.com) with GitHub; the `io.github.tacocarlos` namespace is verified from your GitHub account.
+2. Under **View Account → Generate User Token**, create a token. Store its two halves as secrets of the `release` environment, so only approved release jobs can read them (`gh` prompts for each value):
+   ```sh
+   gh secret set MAVEN_CENTRAL_USERNAME --env release
+   gh secret set MAVEN_CENTRAL_PASSWORD --env release
+   ```
+3. Create a GPG signing key, publish its public half (Central uses it to check signatures), and store the private half without printing it:
+   ```sh
+   brew install gnupg
+   gpg --quick-gen-key "Carlos Luna" ed25519 sign never
+   gpg --list-secret-keys --keyid-format long          # note the key ID
+   gpg --keyserver keys.openpgp.org --send-keys <KEY_ID>
+   gpg --armor --export-secret-keys <KEY_ID> | gh secret set SIGNING_KEY --env release
+   gh secret set SIGNING_KEY_PASSWORD --env release   # the key's passphrase
+   ```
+
+Releases go straight from upload to public (`publishAndReleaseToMavenCentral`); Maven Central versions can never be deleted or replaced.

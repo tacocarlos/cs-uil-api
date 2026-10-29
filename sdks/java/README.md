@@ -9,7 +9,7 @@ Java client for the UIL Computer Science problems API at `https://api.lunaghs.de
 Gradle:
 
 ```kotlin
-implementation("io.github.tacocarlos:luna-cs-uil:0.0.1")
+implementation("io.github.tacocarlos:luna-cs-uil:0.1.0")
 ```
 
 Maven:
@@ -18,7 +18,7 @@ Maven:
 <dependency>
   <groupId>io.github.tacocarlos</groupId>
   <artifactId>luna-cs-uil</artifactId>
-  <version>0.0.1</version>
+  <version>0.1.0</version>
 </dependency>
 ```
 

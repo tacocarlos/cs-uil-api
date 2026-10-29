@@ -17,6 +17,7 @@
 		"openapi:check": "bun run scripts/export-openapi.ts --check",
 		"openapi:export": "bun run scripts/export-openapi.ts",
 		"sdk:generate": "bun run scripts/generate-sdks.ts",
+		"sdk:version": "bun run scripts/sdk-version.ts",
 		"preview": "next build && next start",
 		"start": "next start",
 		"smoke:openrouter": "bun run scripts/smoke-openrouter.ts",

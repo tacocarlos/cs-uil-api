@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tacocarlos/cs-uil-api.git",
+    "url": "git+https://github.com/tacocarlos/cs-uil-api.git",
     "directory": "sdks/typescript"
   },
   "type": "module",
@@ -22,6 +22,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
     "test": "bun test"
   },
   "devDependencies": {

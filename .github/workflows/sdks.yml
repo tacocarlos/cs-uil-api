@@ -1,0 +1,227 @@
+# Checks and tests the client SDKs in sdks/, and publishes them when a release
+# tag is pushed:
+#
+#   bun run sdk:version 0.2.0 && git commit -am "Release SDKs 0.2.0"
+#   git tag sdk-v0.2.0 && git push origin main sdk-v0.2.0
+#
+# Registry setup (trusted publishers, secrets) is described in sdks/README.md.
+name: SDKs
+
+on:
+  push:
+    branches: [main]
+    tags: ["sdk-v*"]
+    # Path filters don't apply to tag pushes, so releases always run.
+    paths: &sdk-paths
+      - openapi.json
+      - openapitools.json
+      - sdks/**
+      - scripts/export-openapi.ts
+      - scripts/generate-sdks.ts
+      - scripts/sdk-version.ts
+      - src/app/api/**
+      - src/server/db/schemas/**
+      - package.json
+      - bun.lock
+      - .github/workflows/sdks.yml
+  pull_request:
+    paths: *sdk-paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdks-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # Live tests run against the deployed API.
+  LUNA_CS_UIL_BASE_URL: https://api.lunaghs.dev
+
+jobs:
+  check:
+    name: Spec and SDKs up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      # OpenAPI Generator is a Java program.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: bun install --frozen-lockfile
+
+      - name: openapi.json matches the API
+        run: bun run openapi:check
+        env:
+          # Exporting the spec loads the app but never queries the database.
+          SKIP_ENV_VALIDATION: "1"
+          TURSO_CONNECTION_URL: file:${{ runner.temp }}/unused.sqlite
+
+      - name: SDKs match openapi.json
+        run: |
+          bun run sdk:generate
+          if [ -n "$(git status --porcelain -- sdks)" ]; then
+            git status --short -- sdks
+            echo "::error::The SDKs are out of date. Run \`bun run sdk:generate\` and commit the result."
+            exit 1
+          fi
+
+      - name: SDK versions agree
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/sdk-v* ]]; then
+            bun run sdk:version --check "${GITHUB_REF_NAME#sdk-v}"
+          else
+            bun run sdk:version --check
+          fi
+
+  test-typescript:
+    name: Test TypeScript
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun test
+
+  test-python:
+    name: Test Python
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uv run --locked pytest
+
+  test-java:
+    name: Test Java
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/java
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew build
+
+  test-csharp:
+    name: Test C#
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/csharp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test
+
+  # ---------------------------------------------------------------------------
+  # Publishing: only for sdk-v* tags, after every check and test passes. The
+  # `release` environment can require a manual approval in repo settings.
+  # ---------------------------------------------------------------------------
+
+  publish-npm:
+    name: Publish to npm
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    needs: [check, test-typescript, test-python, test-java, test-csharp]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (and provenance)
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install --global npm@latest
+      - run: bun install --frozen-lockfile
+      - run: npm publish --access public
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    needs: [check, test-typescript, test-python, test-java, test-csharp]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uv build
+        working-directory: sdks/python
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python/dist
+
+  publish-nuget:
+    name: Publish to NuGet
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    needs: [check, test-typescript, test-python, test-java, test-csharp]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # NuGet trusted publishing
+    defaults:
+      run:
+        working-directory: sdks/csharp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet pack src/LunaCsUil -c Release -o out
+      - uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - run: >-
+          dotnet nuget push "out/*.nupkg"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+
+  publish-maven:
+    name: Publish to Maven Central
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    needs: [check, test-typescript, test-python, test-java, test-csharp]
+    runs-on: ubuntu-latest
+    environment: release
+    defaults:
+      run:
+        working-directory: sdks/java
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}

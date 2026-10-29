@@ -100,6 +100,11 @@ if (args[0] === "--check") {
 	}
 	// Regenerate so the version embedded in generated code matches.
 	execFileSync("bun", ["run", "sdk:generate"], { cwd: ROOT, stdio: "inherit" });
+	// uv.lock records the project's own version; CI installs with --locked.
+	execFileSync("uv", ["lock"], {
+		cwd: path.join(ROOT, "sdks/python"),
+		stdio: "inherit",
+	});
 	console.log(`Set every SDK to ${version}.`);
 } else {
 	console.error("Usage: bun run sdk:version <x.y.z> | --check [x.y.z]");
